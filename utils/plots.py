@@ -411,19 +411,13 @@ def plot_results_overlay(start=0, stop=0):  # from utils.plots import *; plot_re
         fig.savefig(f.replace('.txt', '.png'), dpi=200)
 
 
-def plot_results(start=0, stop=0, bucket='', id=(), labels=(), save_dir=''):
+def plot_results(start=0, stop=0, id=(), labels=(), save_dir=''):
     # Plot training 'results*.txt'. from utils.plots import *; plot_results(save_dir='runs/train/exp')
     fig, ax = plt.subplots(2, 5, figsize=(12, 6), tight_layout=True)
     ax = ax.ravel()
     s = ['Box', 'Objectness', 'Classification', 'Precision', 'Recall',
          'val Box', 'val Objectness', 'val Classification', 'mAP@0.5', 'mAP@0.5:0.95']
-    if bucket:
-        # files = ['https://storage.googleapis.com/%s/results%g.txt' % (bucket, x) for x in id]
-        files = ['results%g.txt' % x for x in id]
-        c = ('gsutil cp ' + '%s ' * len(files) + '.') % tuple('gs://%s/results%g.txt' % (bucket, x) for x in id)
-        os.system(c)
-    else:
-        files = list(Path(save_dir).glob('results*.txt'))
+    files = list(Path(save_dir).glob('results*.txt'))
     assert len(files), 'No results.txt files found in %s, nothing to plot.' % os.path.abspath(save_dir)
     for fi, f in enumerate(files):
         try:
