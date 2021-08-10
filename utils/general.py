@@ -24,7 +24,6 @@ import torch
 import torchvision
 import yaml
 
-from utils.google_utils import gsutil_getsize
 from utils.metrics import box_iou, fitness
 from utils.torch_utils import init_torch_seeds
 
@@ -571,7 +570,6 @@ def strip_optimizer(f='best.pt', s=''):  # from utils.general import *; strip_op
         x['model'] = x['ema']  # replace model with ema
     for k in 'optimizer', 'training_results', 'wandb_id', 'ema', 'updates':  # keys
         x[k] = None
-    x['epoch'] = -1
     x['model'].half()  # to FP16
     for p in x['model'].parameters():
         p.requires_grad = False
