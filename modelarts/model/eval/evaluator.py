@@ -7,6 +7,7 @@ import torch
 import time
 from tqdm import tqdm
 from collections import defaultdict
+from pathlib import Path
 
 Base_dir = osp.dirname(osp.abspath(__file__))
 sys.path.append(osp.join(Base_dir, ".."))
@@ -50,8 +51,7 @@ class Evaluator(object):
         # read images from test.txt
         img_list_file = osp.join( cfg.EVAL_DATASET_PATH,  "test.txt" )
         with open(img_list_file, "r") as f:
-            lines = f.readlines()
-            img_list = [line.strip() for line in lines]
+            img_list = [img.strip() for img in f.readlines()]
         # predict all imgs, save result in class_record
         pool = ThreadPool(multiprocessing.cpu_count())
         with tqdm(total=len(img_list), ncols=120, smoothing=0.9 ) as tq:
@@ -67,14 +67,13 @@ class Evaluator(object):
             APs[cls] = AP
         return APs, self.inference_time
 
-    def predict_and_save(self, img_idx):
-        # find img file
-        img_path = osp.join(cfg.EVAL_DATASET_PATH, 'JPEGImages', img_idx + '.jpg')
+    def predict_and_save(self, img_path):
         # img = RandomColorGamut()(cv2.imread(img_path))
         img = cv2.imread(img_path)
         # predict all valid bboxes in img [N, 6]
         bboxes_prd = self.predict(img)
         # visualization
+        img_idx = Path(img_path).stem
         if bboxes_prd.shape[0] != 0  and self.cnt_visual_img < self.max_visual_img:
             self.visualize(img, bboxes_prd, img_idx, save=True)
             self.cnt_visual_img += 1

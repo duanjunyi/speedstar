@@ -44,7 +44,7 @@ VOC/
 
 # Neural Network weights -----------------------------------------------------------------------------------------------
 *.weights
-*.pt
+# *.pt
 *.onnx
 *.mlmodel
 *.torchscript
@@ -244,3 +244,4 @@ crashlytics-build.properties
 fabric.properties
 
 testcode/
+speedstar/

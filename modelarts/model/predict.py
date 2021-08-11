@@ -12,8 +12,8 @@ from yolov5_config import EVAL_DATASET_PATH, EVAL_WEIGHT_PATH
 
 if __name__ == '__main__':
     # image list
-    img_path = EVAL_DATASET_PATH +'\\JPEGImages\\{:s}.jpg'
-    img_list = np.array([x.split('.')[0] for x in os.listdir(osp.join(EVAL_DATASET_PATH, 'JPEGImages'))])
+    img_path = EVAL_DATASET_PATH +'\\images\\{:s}.jpg'
+    img_list = np.array([x.split('.')[0] for x in os.listdir(osp.join(EVAL_DATASET_PATH, 'images'))])
     np.random.shuffle(img_list)
 
     # load model
