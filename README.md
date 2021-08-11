@@ -15,7 +15,7 @@ pip install -r requirements.txt
 ## 2. 准备工作
 ### 2.1 数据集
 
-以华为云人工智能大赛数据集为例，首先下载[数据集](https://marketplace.huaweicloud.com/markets/aihub/usercenter/?activeTab=MyDownload&id=b3879ae9-dc2a-4b8c-bfaf-428ecf2f1f9e#dataset)到OBS中，然后使用obsutil将数据集下载至本地。或者可以从百度云下载Speedstar数据集[]()。
+以华为云人工智能大赛数据集为例，首先下载[数据集](https://marketplace.huaweicloud.com/markets/aihub/usercenter/?activeTab=MyDownload&id=b3879ae9-dc2a-4b8c-bfaf-428ecf2f1f9e#dataset)到OBS中，然后使用obsutil将数据集下载至本地。或者可以从百度云下载[Speedstar数据集（验证码：yolo）](https://pan.baidu.com/s/1rEd5VljAcuTPE7E9QOGsjA)。
 下载完成后，将数据集放置于`data/`文件夹下，并修改文件夹名称，至此，你的目录结构应该为：
 ```
 yolov5
@@ -40,13 +40,13 @@ yolov5
 
 
 ### 2.2 下载权重文件
-* 下载最新的模型： https://github.com/ultralytics/yolov5/releases
+下载最新的模型： https://github.com/ultralytics/yolov5/releases
 
-* 或者运行
+或者运行如下命令下载模型
 ```
 $ bash path/to/download_weights.sh
 ```
-* 放置于`train.py`同级目录下。
+将权重放置于`train.py`同级目录下。
 
 ## 3. 训练
 运行如下指令开始训练:
@@ -63,7 +63,6 @@ python train.py -h
 python -u train.py --weights  your_backup.pth  --resume
 ```
 
-
 ## 4. 模型评估
 
 ### 4.1 评估设置
@@ -76,12 +75,13 @@ python -u train.py --weights  your_backup.pth  --resume
 cd ./modelarts/model/
 python evaluate.py
 ```
-运行结束后会输出模型对于测试集的`mAP@0.5/mAP@0.5:0.95`
+运行结束后会输出模型对于测试集的`mAP@0.5 / mAP@0.5:0.95`。
 
 ### 4.3 可视化预测效果
 
 运行`predict.py`，可以一张一张查看预测效果。
-![demo](https://gitee.com/junyi-duan/speedstar/raw/master/docs/demo.gif)
+
+![demo](https://gitee.com/junyi-duan/speedstar/raw/master/docs/predict.gif)
 
 
 ## 5. ModelArts部署
