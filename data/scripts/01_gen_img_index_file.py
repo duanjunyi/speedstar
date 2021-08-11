@@ -4,7 +4,7 @@ Generate train.txt and test.txt in DATASET_PATH
 import numpy as np
 from pathlib import Path
 import yaml
-PROJ_DIR = Path(__file__).parent.parent.parent
+PROJ_DIR = Path(__file__).resolve().parent.parent.parent
 DATA_YAML = PROJ_DIR.joinpath('data/dataset.yaml')    # 数据集配置文件
 with DATA_YAML.open('r') as f:
     data_cfg = yaml.safe_load(f)

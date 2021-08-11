@@ -6,9 +6,9 @@ import yaml
 import xml.etree.ElementTree as ET
 import numpy as np
 from tqdm import tqdm
-PROJ_DIR = Path(__file__).parent.parent.parent
+PROJ_DIR = Path(__file__).resolve().parent.parent.parent
 DATA_YAML = PROJ_DIR.joinpath('data/dataset.yaml')    # 数据集配置文件
-with open(DATA_YAML) as f:
+with DATA_YAML.open('r') as f:
     data_cfg = yaml.safe_load(f)
 DATASET_PATH = PROJ_DIR.joinpath(data_cfg['path'])
 
