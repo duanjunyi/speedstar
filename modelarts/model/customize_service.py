@@ -120,7 +120,7 @@ if __name__ == "__main__":
     import numpy as np
     from io import BytesIO
     from yolov5_config import MODEL_PATH
-    img_url = MODEL_PATH + '\\scripts\\5060.jpg'
+    img_url = MODEL_PATH + '\\test.jpg'
     Base_dir = osp.dirname(osp.abspath(__file__))
 
     with open(img_url, 'rb') as f:
