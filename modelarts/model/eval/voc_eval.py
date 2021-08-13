@@ -20,7 +20,7 @@ def read_cls_anno(cls_name):
     return a dict, {img_idx: array[[x1,y1,x2,y2,difficult], ...]}
     """
     cls_record = defaultdict(list)
-    cls_path = osp.join(DATASET_PATH, 'class_records', cls_name+'.txt')
+    cls_path = osp.join(DATASET_PATH, 'ClassRecords', cls_name+'.txt')
     with open(cls_path, "r") as f:
         lines = f.readlines()
     lines = [line.split(' ') for line in lines]

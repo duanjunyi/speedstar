@@ -11,9 +11,8 @@ if __name__ == '__main__':
     # load model
     print("loading weight file from : {}".format(cfg.EVAL_WEIGHT_PATH))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # device = torch.device("cpu")##########
     ckpt = torch.load(cfg.EVAL_WEIGHT_PATH, map_location=device)
-    print(ckpt['model'].yaml)
+    # print(ckpt['model'].yaml)
     yolo = Model(ckpt['model'].yaml, ch=3, nc=6).to(device)
     state_dict = ckpt['model'].float().state_dict()  # to FP32
     yolo.load_state_dict(state_dict, strict=False)  # load

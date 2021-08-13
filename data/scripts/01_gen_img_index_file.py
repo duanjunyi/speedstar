@@ -2,25 +2,17 @@
 Generate train.txt and test.txt in DATASET_PATH
 """
 import numpy as np
-from pathlib import Path
-import yaml
-PROJ_DIR = Path(__file__).resolve().parent.parent.parent
-DATA_YAML = PROJ_DIR.joinpath('data/dataset.yaml')    # 数据集配置文件
-with DATA_YAML.open('r') as f:
-    data_cfg = yaml.safe_load(f)
-DATASET_PATH = PROJ_DIR.joinpath(data_cfg['path'])
 from tqdm import tqdm
-
+from data_config import DATASET_PATH, IMG_PATH, split_percent
 
 if __name__ == "__main__":
-    Img_path     = DATASET_PATH / 'images'
     train_index_file = DATASET_PATH / 'train.txt'
     test_index_file =  DATASET_PATH / 'test.txt'
     # 获取所有图片路径
-    img_list = [str(img.resolve()) for img in Img_path.glob('*.jpg')]
+    img_list = [str(img.resolve()) for img in IMG_PATH.glob('*.jpg')]
     # shuffle and split
     index = np.random.permutation(len(img_list))
-    split_index = int(len(index) * data_cfg['split_percent'])
+    split_index = int(len(index) * split_percent)
 
     train_list  = np.array(img_list)[ index[:split_index] ]
     test_list   = np.array(img_list)[ index[split_index:] ]

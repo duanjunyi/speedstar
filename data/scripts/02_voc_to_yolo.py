@@ -1,16 +1,13 @@
 """
-convert voc format annotations to yolo format annotations, and save to dataset/labels/
+convert voc format annotations to yolo format annotations, and save to dataset/YOLOAnnos/
 """
 from pathlib import Path
-import yaml
 import xml.etree.ElementTree as ET
 import numpy as np
 from tqdm import tqdm
-PROJ_DIR = Path(__file__).resolve().parent.parent.parent
-DATA_YAML = PROJ_DIR.joinpath('data/dataset.yaml')    # 数据集配置文件
-with DATA_YAML.open('r') as f:
-    data_cfg = yaml.safe_load(f)
-DATASET_PATH = PROJ_DIR.joinpath(data_cfg['path'])
+
+from data_config import VOC_PATH, YOLO_PATH, DATASET_PATH
+from data_config import Customer_DATA
 
 def parse_anno(filename):
     """ Parse a PASCAL VOC xml file """
@@ -21,7 +18,7 @@ def parse_anno(filename):
     lines = []
     line_pattern = '{:d} {:f} {:f} {:f} {:f}\n'
     for obj in tree.findall("object"):
-        cls = data_cfg['names'].index(obj.find("name").text)
+        cls = Customer_DATA['CLASSES'].index(obj.find("name").text)
         bbox = obj.find("bndbox")
         xyxy = np.array([
             float(bbox.find("xmin").text)/w,
@@ -44,20 +41,19 @@ def xyxy2xywh(x):
 
 
 if __name__ == '__main__':
-    label_path = DATASET_PATH / 'labels'
-    xml_path = DATASET_PATH / 'annotations'
+
     path = [DATASET_PATH / 'test.txt', DATASET_PATH / 'train.txt']
 
-    label_path.mkdir(exist_ok=True)
+    YOLO_PATH.mkdir(exist_ok=True)
 
     xml_list = []
     for p in path:
         with p.open('r') as f:
-            xmls = [ xml_path / Path(file).with_suffix('.xml').name for file in f.readlines()]
+            xmls = [ VOC_PATH / Path(file).with_suffix('.xml').name for file in f.readlines()]
             xml_list += xmls
 
     for xml in tqdm(xml_list):
         lines = parse_anno(str(xml.resolve()))
-        label = label_path / xml.with_suffix('.txt').name
+        label = YOLO_PATH / xml.with_suffix('.txt').name
         with label.open('w') as f :
             f.writelines(lines)

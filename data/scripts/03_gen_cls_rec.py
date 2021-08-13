@@ -1,19 +1,13 @@
 """
 split test annotations according to class name
-and save at data/class_records/[classname].txt
+and save at data/ClassRecords/[classname].txt
 each line: 'img_idx x1,y1,x2,y2,difficult'
 """
 from collections import defaultdict
 from pathlib import Path
-import yaml
 import xml.etree.ElementTree as ET
+from data_config import VOC_PATH, CLASS_PATH, DATASET_PATH
 
-PROJ_DIR = Path(__file__).resolve().parent.parent.parent
-DATA_YAML = PROJ_DIR.joinpath('data/dataset.yaml')    # 数据集配置文件
-with DATA_YAML.open('r') as f:
-    data_cfg = yaml.safe_load(f)
-DATASET_PATH = PROJ_DIR.joinpath(data_cfg['path'])
-ANNO_PATH = DATASET_PATH / 'annotations'
 
 def parse_anno(filename):
     """ Parse a PASCAL VOC xml file """
@@ -34,11 +28,9 @@ def parse_anno(filename):
     return objects
 
 
-
 if __name__ == "__main__":
     # 类记录路径
-    cls_record_path = DATASET_PATH / "class_records"
-    cls_record_path.mkdir(exist_ok=True)
+    CLASS_PATH.mkdir(exist_ok=True)
 
     with (DATASET_PATH/'test.txt').open('r') as f:
         img_list = f.readlines()
@@ -46,7 +38,7 @@ if __name__ == "__main__":
     Cls_Record = defaultdict(list)
     for img in img_list:
         img_name = Path(img).stem
-        objs = parse_anno(str(ANNO_PATH.joinpath(img_name+'.xml')))
+        objs = parse_anno(str(VOC_PATH.joinpath(img_name+'.xml')))
         line = img_name + ' {:d},{:d},{:d},{:d},{:d}\n'
         for obj in objs:
             cls_name = obj["name"]
@@ -56,7 +48,7 @@ if __name__ == "__main__":
 
     for cls_name, lines in Cls_Record.items():
         print("class: {:<20s}, total num: {:d}".format(cls_name, len(lines)))
-        with cls_record_path.joinpath(cls_name+'.txt').open('w') as f:
+        with CLASS_PATH.joinpath(cls_name+'.txt').open('w') as f:
             f.write(''.join(lines))
 
 

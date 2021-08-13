@@ -16,15 +16,15 @@ pip install -r requirements.txt
 ### 2.1 数据集
 
 以华为云人工智能大赛数据集为例，首先下载[数据集](https://marketplace.huaweicloud.com/markets/aihub/usercenter/?activeTab=MyDownload&id=b3879ae9-dc2a-4b8c-bfaf-428ecf2f1f9e#dataset)到OBS中，然后使用obsutil将数据集下载至本地。或者可以从百度云下载[Speedstar数据集（验证码：yolo）](https://pan.baidu.com/s/1rEd5VljAcuTPE7E9QOGsjA)。
-下载完成后，将数据集放置于`data/`文件夹下，并修改文件夹名称，至此，你的目录结构应该为：
+下载完成后，将数据集放置于`data/`文件夹下，并修改文件夹名称为VOC标准（`Annotations`存放`.xml`，`JPEGImages`存放`.jpg`），至此，你的目录结构应该为：
 ```
 yolov5
 ├───data
 │   └───Your_dataset
-│       ├───annotations
+│       ├───Annotations
 │       │   ├──1.xml
 │       │   └──...
-│       ├───images
+│       ├───JPEGImages
 │       │   ├──1.jpg
 │       │   └──...
 ```
@@ -34,13 +34,14 @@ yolov5
 
 * 划分数据集为测试集和训练集：运行`data/scripts/01_gen_img_index_file.py`，之后你会得到按照`"split_percent"`划分的数据集和测试集列表文件`data/Your_dataset/train.txt(test.txt)`。
 
-* 将 `VOC - *.xml` 格式标签转换为 `YOLO - *.txt` 格式 (img x y w h)：运行 `data/scripts/02_voc_to_yolo.py`，生成的YOLO格式标签文件保存在`data/Your_dataset/labels/`下。
+* 将 `VOC - *.xml` 格式标签转换为 `YOLO - *.txt` 格式 (img x y w h)：运行 `data/scripts/02_voc_to_yolo.py`，生成的YOLO格式标签文件保存在`data/Your_dataset/YOLOAnnos/`下。
 
-* 为每个类别生成标签文件：运行 `data/scripts/03_gen_cls_rec.py`，生成的类别标签保存于 `your_dataset/class_records/` 中，便于计算APs时读取。
+* 为每个类别生成标签文件：运行 `data/scripts/03_gen_cls_rec.py`，生成的类别标签保存于 `your_dataset/ClassAnnos/` 中，便于计算APs时读取。
 
+另外，若需要`COCO`格式的数据集，可以运行`voc_to_coco.py`。
 
 ### 2.2 下载权重文件
-下载最新的模型： https://github.com/ultralytics/yolov5/releases
+下载最新的预训练权重文件： https://github.com/ultralytics/yolov5/releases
 
 或者运行如下命令下载模型
 ```
