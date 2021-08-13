@@ -88,3 +88,59 @@ python evaluate.py
 本地运行`customize_service.py`，如果可以正确输出`test.jpg`中的边框，说明配置正确。接着将`modelarts`文件夹整体上传至OBS中，并选择从该文件夹构建模型。
 
 
+## 6. 导出ONNX模型
+### 6.1 安装依赖
+安装依赖，为了加快下载速度，可以使用指定国内源：
+```
+pip install onnx>=1.8.0 onnxruntime>=1.5.2 onnxoptimizer>=0.1.2 onnx-simplifier>=0.3.6 -i https://pypi.tuna.tsinghua.edu.cn/simple
+```
+### 6.2 导出
+运行：
+```
+python export.py    --weights path\to\weight.pt --img 1024 --batch 1 --dynamic --simplify
+```
+其中：
+```
+    --weigths   # pt文件路径，ONNX模型输出路径
+    --img 1024  # 模型支持的图片尺寸
+    --dynamic   # 支持批处理
+    --simplify  # 自动简化模型
+```
+
+### 6.3 查看模型
+建议安装 [Netron Viewer](https://github.com/lutzroeder/netron/releases/) 可视化模型。
+![model](https://gitee.com/junyi-duan/speedstar/raw/master/docs/onnx_model_visual.png)
+
+
+## 7 迁移为MindSpore模型
+### 7.1 安装依赖
+```
+pip install mindspore==1.3.0  mindinsight==1.3.0
+```
+
+由于模型转换程序`mindconverter`一般只支持`linux`系统，若要在`windows`下使用，需要进行如下两个操作：
+
+* 设置环境变量 `HOME`：可以在`path\to\mindinsight\mindconverter\__init__.py`文件中添加两行：
+```
+import os
+os.environ['HOME'] = r'C:\Users\youname'
+```
+* 如果出现错误：`No module named 'fcntl'`，是因为 `fcntl` 是 `linux` 环境下特有的库，可以进入相关文件，将涉及`fcntl`的语句注释掉。
+
+安装完成后可以运行`mindconverter -h`检查是否安装成功。
+
+### 7.2 模型迁移
+运行：
+```
+ python .\onnx2mindspore.py --weights path\to\model.onnx
+```
+可选参数`--weights`为待转换ONNX模型路径，`--img_size`为图片尺寸（默认为640），`--output`为输出路径（默认为原模型路径）。
+
+转换完成后，输出目录下生成如下文件：
+- 模型定义脚本（后缀为`.py`）
+- 权重ckpt文件（后缀为`.ckpt`）
+- 迁移前后权重映射（后缀为`.json`）
+- 转换报告（后缀为`.txt`）
+
+
+
