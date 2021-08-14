@@ -188,3 +188,9 @@ class Resize(object):
             bboxes[:, [1, 3]] = bboxes[:, [1, 3]] * resize_ratio + dh
             return image, bboxes
         return image
+
+
+class PTServingBaseService():
+    """ for local test """
+    def __init__(self, arg1, arg2) -> None:
+        pass

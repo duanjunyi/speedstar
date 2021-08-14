@@ -138,39 +138,40 @@ class Module8(nn.Cell):
 
 
 class Model(nn.Cell):
-    def __init__(self, bs=1):  # bs - batch_size
+    def __init__(self, img_size=1024, bs=1):  # bs - batch_size
         super(Model, self).__init__()
+
         self.stridedslice_0 = P.StridedSlice()
         self.stridedslice_0_begin = (0, 0, 0, 0)
-        self.stridedslice_0_end = (bs, 3, 1024, 1024)
+        self.stridedslice_0_end = (bs, 3, img_size, img_size)
         self.stridedslice_0_strides = (1, 1, 2, 1)
         self.stridedslice_4 = P.StridedSlice()
         self.stridedslice_4_begin = (0, 0, 0, 0)
-        self.stridedslice_4_end = (bs, 3, 512, 1024)
+        self.stridedslice_4_end = (bs, 3, img_size//2, img_size)
         self.stridedslice_4_strides = (1, 1, 1, 2)
         self.stridedslice_1 = P.StridedSlice()
         self.stridedslice_1_begin = (0, 0, 1, 0)
-        self.stridedslice_1_end = (bs, 3, 1024, 1024)
+        self.stridedslice_1_end = (bs, 3, img_size, img_size)
         self.stridedslice_1_strides = (1, 1, 2, 1)
         self.stridedslice_5 = P.StridedSlice()
         self.stridedslice_5_begin = (0, 0, 0, 0)
-        self.stridedslice_5_end = (bs, 3, 512, 1024)
+        self.stridedslice_5_end = (bs, 3, img_size//2, img_size)
         self.stridedslice_5_strides = (1, 1, 1, 2)
         self.stridedslice_2 = P.StridedSlice()
         self.stridedslice_2_begin = (0, 0, 0, 0)
-        self.stridedslice_2_end = (bs, 3, 1024, 1024)
+        self.stridedslice_2_end = (bs, 3, img_size, img_size)
         self.stridedslice_2_strides = (1, 1, 2, 1)
         self.stridedslice_6 = P.StridedSlice()
         self.stridedslice_6_begin = (0, 0, 0, 1)
-        self.stridedslice_6_end = (bs, 3, 512, 1024)
+        self.stridedslice_6_end = (bs, 3, img_size//2, img_size)
         self.stridedslice_6_strides = (1, 1, 1, 2)
         self.stridedslice_3 = P.StridedSlice()
         self.stridedslice_3_begin = (0, 0, 1, 0)
-        self.stridedslice_3_end = (bs, 3, 1024, 1024)
+        self.stridedslice_3_end = (bs, 3, img_size, img_size)
         self.stridedslice_3_strides = (1, 1, 2, 1)
         self.stridedslice_7 = P.StridedSlice()
         self.stridedslice_7_begin = (0, 0, 0, 1)
-        self.stridedslice_7_end = (bs, 3, 512, 1024)
+        self.stridedslice_7_end = (bs, 3, img_size//2, img_size)
         self.stridedslice_7_strides = (1, 1, 1, 2)
         self.concat_8 = P.Concat(axis=1)
         self.module12_0 = Module12(module1_0_conv2d_0_in_channels=12,
@@ -400,7 +401,7 @@ class Model(nn.Cell):
                                    module1_1_conv2d_0_stride=(1, 1),
                                    module1_1_conv2d_0_padding=0,
                                    module1_1_conv2d_0_pad_mode="valid")
-        self.resizenearestneighbor_132 = P.ResizeNearestNeighbor(size=(64, 64))
+        self.resizenearestneighbor_132 = P.ResizeNearestNeighbor(size=(img_size//16, img_size//16))
         self.concat_133 = P.Concat(axis=1)
         self.module15_0 = Module15(module1_0_conv2d_0_in_channels=512,
                                    module1_0_conv2d_0_out_channels=128,
@@ -439,7 +440,7 @@ class Model(nn.Cell):
                                    module1_1_conv2d_0_stride=(1, 1),
                                    module1_1_conv2d_0_padding=0,
                                    module1_1_conv2d_0_pad_mode="valid")
-        self.resizenearestneighbor_153 = P.ResizeNearestNeighbor(size=(128, 128))
+        self.resizenearestneighbor_153 = P.ResizeNearestNeighbor(size=(img_size//8, img_size//8))
         self.concat_154 = P.Concat(axis=1)
         self.module15_1 = Module15(module1_0_conv2d_0_in_channels=256,
                                    module1_0_conv2d_0_out_channels=64,
@@ -558,25 +559,25 @@ class Model(nn.Cell):
                                     group=1,
                                     has_bias=True)
         self.reshape_174 = P.Reshape()
-        self.reshape_174_shape = tuple([bs, 3, 11, 128, 128])
+        self.reshape_174_shape = tuple([bs, 3, 11, img_size//8, img_size//8])
         self.transpose_176 = P.Transpose()
         self.sigmoid_178 = nn.Sigmoid()
-        self.module8_0 = Module8(stridedslice_0_begin=(0, 0, 0, 0, 0), stridedslice_0_end=(bs, 3, 128, 128, 2))
+        self.module8_0 = Module8(stridedslice_0_begin=(0, 0, 0, 0, 0), stridedslice_0_end=(bs, 3, img_size//8, img_size//8, 2))
         self.sub_190_bias = 0.5
-        self.add_193_bias = Parameter(Tensor(np.random.uniform(0, 1, (1, 1, 128, 128, 2)).astype(np.float32)),
+        self.add_193_bias = Parameter(Tensor(np.random.uniform(0, 1, (1, 1, img_size//8, img_size//8, 2)).astype(np.float32)),
                                       name=None)
         self.mul_196_w = 8.0
-        self.module8_1 = Module8(stridedslice_0_begin=(0, 0, 0, 0, 2), stridedslice_0_end=(bs, 3, 128, 128, 4))
+        self.module8_1 = Module8(stridedslice_0_begin=(0, 0, 0, 0, 2), stridedslice_0_end=(bs, 3, img_size//8, img_size//8, 4))
         self.pow_191 = P.Pow()
         self.pow_191_input_weight = 2.0
         self.mul_194_w = Parameter(Tensor(np.random.uniform(0, 1, (1, 3, 1, 1, 2)).astype(np.float32)), name=None)
         self.stridedslice_183 = P.StridedSlice()
         self.stridedslice_183_begin = (0, 0, 0, 0, 4)
-        self.stridedslice_183_end = (bs, 3, 128, 128, 11)
+        self.stridedslice_183_end = (bs, 3, img_size//8, img_size//8, 11)
         self.stridedslice_183_strides = (1, 1, 1, 1, 1)
         self.concat_198 = P.Concat(axis=-1)
         self.reshape_200 = P.Reshape()
-        self.reshape_200_shape = tuple([bs, 49152, 11])
+        self.reshape_200_shape = tuple([bs, 3*(img_size//8)*(img_size//8), 11])
         self.conv2d_208 = nn.Conv2d(in_channels=256,
                                     out_channels=33,
                                     kernel_size=(1, 1),
@@ -587,24 +588,24 @@ class Model(nn.Cell):
                                     group=1,
                                     has_bias=True)
         self.reshape_210 = P.Reshape()
-        self.reshape_210_shape = tuple([bs, 3, 11, 64, 64])
+        self.reshape_210_shape = tuple([bs, 3, 11, img_size//16, img_size//16])
         self.transpose_212 = P.Transpose()
         self.sigmoid_214 = nn.Sigmoid()
-        self.module8_2 = Module8(stridedslice_0_begin=(0, 0, 0, 0, 0), stridedslice_0_end=(bs, 3, 64, 64, 2))
+        self.module8_2 = Module8(stridedslice_0_begin=(0, 0, 0, 0, 0), stridedslice_0_end=(bs, 3, img_size//16, img_size//16, 2))
         self.sub_226_bias = 0.5
-        self.add_229_bias = Parameter(Tensor(np.random.uniform(0, 1, (1, 1, 64, 64, 2)).astype(np.float32)), name=None)
+        self.add_229_bias = Parameter(Tensor(np.random.uniform(0, 1, (1, 1, img_size//16, img_size//16, 2)).astype(np.float32)), name=None)
         self.mul_232_w = 16.0
-        self.module8_3 = Module8(stridedslice_0_begin=(0, 0, 0, 0, 2), stridedslice_0_end=(bs, 3, 64, 64, 4))
+        self.module8_3 = Module8(stridedslice_0_begin=(0, 0, 0, 0, 2), stridedslice_0_end=(bs, 3, img_size//16, img_size//16, 4))
         self.pow_227 = P.Pow()
         self.pow_227_input_weight = 2.0
         self.mul_230_w = Parameter(Tensor(np.random.uniform(0, 1, (1, 3, 1, 1, 2)).astype(np.float32)), name=None)
         self.stridedslice_219 = P.StridedSlice()
         self.stridedslice_219_begin = (0, 0, 0, 0, 4)
-        self.stridedslice_219_end = (bs, 3, 64, 64, 11)
+        self.stridedslice_219_end = (bs, 3, img_size//16, img_size//16, 11)
         self.stridedslice_219_strides = (1, 1, 1, 1, 1)
         self.concat_234 = P.Concat(axis=-1)
         self.reshape_236 = P.Reshape()
-        self.reshape_236_shape = tuple([bs, 12288, 11])
+        self.reshape_236_shape = tuple([bs, 3*(img_size//16)*(img_size//16), 11])
         self.conv2d_243 = nn.Conv2d(in_channels=512,
                                     out_channels=33,
                                     kernel_size=(1, 1),
@@ -615,24 +616,24 @@ class Model(nn.Cell):
                                     group=1,
                                     has_bias=True)
         self.reshape_244 = P.Reshape()
-        self.reshape_244_shape = tuple([bs, 3, 11, 32, 32])
+        self.reshape_244_shape = tuple([bs, 3, 11, img_size//32, img_size//32])
         self.transpose_245 = P.Transpose()
         self.sigmoid_246 = nn.Sigmoid()
-        self.module8_4 = Module8(stridedslice_0_begin=(0, 0, 0, 0, 0), stridedslice_0_end=(bs, 3, 32, 32, 2))
+        self.module8_4 = Module8(stridedslice_0_begin=(0, 0, 0, 0, 0), stridedslice_0_end=(bs, 3, img_size//32, img_size//32, 2))
         self.sub_252_bias = 0.5
-        self.add_254_bias = Parameter(Tensor(np.random.uniform(0, 1, (1, 1, 32, 32, 2)).astype(np.float32)), name=None)
+        self.add_254_bias = Parameter(Tensor(np.random.uniform(0, 1, (1, 1, img_size//32, img_size//32, 2)).astype(np.float32)), name=None)
         self.mul_256_w = 32.0
-        self.module8_5 = Module8(stridedslice_0_begin=(0, 0, 0, 0, 2), stridedslice_0_end=(bs, 3, 32, 32, 4))
+        self.module8_5 = Module8(stridedslice_0_begin=(0, 0, 0, 0, 2), stridedslice_0_end=(bs, 3, img_size//32, img_size//32, 4))
         self.pow_253 = P.Pow()
         self.pow_253_input_weight = 2.0
         self.mul_255_w = Parameter(Tensor(np.random.uniform(0, 1, (1, 3, 1, 1, 2)).astype(np.float32)), name=None)
         self.stridedslice_249 = P.StridedSlice()
         self.stridedslice_249_begin = (0, 0, 0, 0, 4)
-        self.stridedslice_249_end = (bs, 3, 32, 32, 11)
+        self.stridedslice_249_end = (bs, 3, img_size//32, img_size//32, 11)
         self.stridedslice_249_strides = (1, 1, 1, 1, 1)
         self.concat_257 = P.Concat(axis=-1)
         self.reshape_258 = P.Reshape()
-        self.reshape_258_shape = tuple([bs, 3072, 11])
+        self.reshape_258_shape = tuple([bs, 3*(img_size//32)*(img_size//32), 11])
         self.concat_259 = P.Concat(axis=1)
 
     def construct(self, images):

@@ -1,39 +1,37 @@
 try:
     from model_service.pytorch_model_service import PTServingBaseService
 except:
-    from tools import PTServingBaseService
+    from service_utils.tools import PTServingBaseService
+from pathlib import Path
+BASE_DIR = Path(__file__).parent
 
-import torch.nn as nn
-import torch
-import json
-import numpy as np
-import torchvision.transforms as transforms
 import cv2
-from models.yolo import Model
-import yolov5_config as cfg
-from tools import Resize, non_max_suppression
+import numpy as np
+import mindspore
+from mindspore import load_checkpoint, load_param_into_net, context, Tensor, dtype, ops
+from service_utils.tools import Resize,  batch_nms
 
-import os.path as osp
+import yolov5_config as cfg
+from models.yolov5s import Model
+
 
 class Yolov5Service(PTServingBaseService):
 
     def __init__(self, model_name, model_path):
         super(Yolov5Service, self).__init__(model_name, model_path)
-        self.base_dir =  osp.dirname(osp.realpath(__file__))
-        # load model
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        ckpt = torch.load(cfg.WEIGHT_PATH, map_location=self.device)
-        self.yolo = Model(ckpt['model'].yaml, ch=3, nc=6).to(self.device)
-        state_dict = ckpt['model'].float().state_dict()  # to FP32
-        self.yolo.load_state_dict(state_dict, strict=False)  # load
-        self.yolo.eval()
-        print('Transferred %g/%g items from %s' % (len(state_dict), len(self.yolo.state_dict()), cfg.WEIGHT_PATH))
+        # context.set_context(mode=context.GRAPH_MODE, device_target="GPU")
+        # 加载模型
+        param_dict = load_checkpoint(str(cfg.WEIGHT_PATH))
+        self.test_size = param_dict['module1_8.conv2d_0.weight'].shape[1]
+        print(f'Image size: {self.test_size}')
+        self.yolo = Model(bs=1, img_size=self.test_size)  # batch size 默认为 1
+        not_load_params = load_param_into_net(self.yolo, param_dict)
 
-        self.test_size = cfg.IMG_SIZE
         self.org_shape = (0, 0)
         self.conf_thresh = cfg.CONF_THRESH
         self.nms_thresh = cfg.NMS_THRESH
         self.Classes = np.array(cfg.Customer_DATA["CLASSES"])
+        self.resize = Resize((self.test_size, self.test_size), correct_box=False)
 
     def _preprocess(self, data):
         pro_data = {}
@@ -42,23 +40,26 @@ class Yolov5Service(PTServingBaseService):
         for img_name, img_content in image_dict.items():
             img = self.__imread(img_content)
             self.org_shape = img.shape[:2]
-            img = self.__transform(img)
+            img = Tensor(   self.resize(img).transpose(2, 0, 1),
+                            dtype=dtype.float32 )
             input_batch.append(img)
-        pro_data['images'] = torch.stack(input_batch, dim=0)
+        pro_data['images'] = ops.Stack()(input_batch)
 
         return pro_data
 
+
     def _inference(self, data):
         result = {}
-        with torch.no_grad():
-            input_batch = data['images']
-            # v - [1, C, test_size, test_size]
-            pred, _ = self.yolo(input_batch)
-            # pred - [N, 6(xmin, ymin, xmax, ymax, score, class)]
-            pred = non_max_suppression(pred, self.conf_thresh, self.nms_thresh, multi_label=True)
-            pred = pred[0].cpu().numpy() # xyxy conf cls
-            pred = self.resize_pb( pred, self.test_size, self.org_shape)
-            result['images'] = pred
+        input_batch = data['images']
+        # infer
+        preds = self.yolo(input_batch)  # list of Tensor
+        pred = preds[3][0:1,...].asnumpy()  # Tensor [1, N, 11(xywh)]
+        # nms
+        pred = batch_nms(pred, self.conf_thresh, self.nms_thresh)  # numpy [1, n, 6(xyxy)]
+        pred = pred[0]
+        # resize to original size
+        bbox = self.resize_pb( pred, self.test_size, self.org_shape)
+        result['images'] = bbox
         return result
 
     def _postprocess(self, data):
@@ -74,6 +75,7 @@ class Yolov5Service(PTServingBaseService):
                 'detection_scores' : detection_scores.tolist()
             }
         return result
+
 
     def resize_pb(self, pred_bbox, test_input_size, org_img_shape):
         """
@@ -104,12 +106,10 @@ class Yolov5Service(PTServingBaseService):
         return np.concatenate([pred_coor, pred_bbox[:, 4:]], axis=-1)
 
 
-    def __transform(self, img):
-        img = Resize((self.test_size, self.test_size), correct_box=False)(img, None).transpose(2, 0, 1)
-        return torch.from_numpy(img).float().to(self.device)
-        # return torch.from_numpy(img[np.newaxis, ...]).float().to(self.device)
-
     def __imread(self, img_byteio):
+        """
+        read image from byteio
+        """
         return cv2.imdecode(
             np.frombuffer(img_byteio.getbuffer(), np.uint8),
             cv2.IMREAD_COLOR
@@ -117,10 +117,11 @@ class Yolov5Service(PTServingBaseService):
 
 
 if __name__ == "__main__":
+    context.set_context(mode=context.GRAPH_MODE, device_target="CPU")
     import numpy as np
     from io import BytesIO
-    from yolov5_config import MODEL_PATH
-    img_url = MODEL_PATH + '\\test.jpg'
+    from yolov5_config import DATASET_PATH
+    img_url = DATASET_PATH  / 'JPEGImages/2.jpg'
 
     with open(img_url, 'rb') as f:
         a = BytesIO(f.read())
@@ -135,5 +136,3 @@ if __name__ == "__main__":
     result = server._inference(data)
     result = server._postprocess(result)
     print(result['detection_boxes'])
-
-

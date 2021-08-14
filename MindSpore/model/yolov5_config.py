@@ -6,15 +6,14 @@ from pathlib import Path
 WEIGHT = 'yolov5s_datav3_1024.ckpt'               # 模型权重
 MODEL_PATH = Path(__file__).resolve().parent      # mindspore路径
 WEIGHT_PATH = MODEL_PATH / 'weights' / WEIGHT
-try:
-    IMG_SIZE = int(WEIGHT.split('.')[0].split('_')[-1])       # 图片尺寸
-except:
-    IMG_SIZE = 640
-print(f'Image size: {IMG_SIZE}')
+
+# try:
+#     IMG_SIZE = int(WEIGHT.split('.')[0].split('_')[-1])       # 图片尺寸
+# except:
+#     IMG_SIZE = 640
 
 # 本地测试配置
-EVAL_WEIGHT_PATH = WEIGHT_PATH
-EVAL_DATASET_PATH = str(MODEL_PATH / '../data/speedstar')  # 测试用的数据集
+DATASET_PATH = MODEL_PATH / '../../data/speedstar'  # 测试用的数据集
 
 # 推理配置
 NMS_THRESH =0.1

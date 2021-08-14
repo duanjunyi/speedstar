@@ -11,19 +11,25 @@ from service_utils.general import colorprint
 from service_utils.visualize import visualize_boxes
 
 import yolov5_config as cfg
-from models.yolov5s_datav3_1024_2 import Model
+from models.yolov5s import Model
+#
+from tqdm import tqdm
+from service_utils.voc_eval import voc_eval_ap50_95
+from collections import defaultdict
+import time
+current_milli_time = lambda: int(round(time.time() * 1000))
 
-
-class Yolov5Service():
+class Evaluator():
 
     def __init__(self):
-        super(Yolov5Service, self).__init__()
+        super(Evaluator, self).__init__()
         # 加载模型
-        self.yolo = Model(bs=1)  # batch size 默认为 1
         param_dict = load_checkpoint(str(cfg.WEIGHT_PATH))
+        self.test_size = param_dict['module1_8.conv2d_0.weight'].shape[1]
+        print(f'Image size: {self.test_size}')
+        self.yolo = Model(bs=1, img_size=self.test_size)  # batch size 默认为 1
         not_load_params = load_param_into_net(self.yolo, param_dict)
 
-        self.test_size = cfg.IMG_SIZE
         self.org_shape = (0, 0)
         self.conf_thresh = cfg.CONF_THRESH
         self.nms_thresh = cfg.NMS_THRESH
@@ -37,7 +43,9 @@ class Yolov5Service():
 
     def _inference(self, data):
         # infer
+        start_time = current_milli_time()  ### TODO
         preds = self.yolo(data)  # list of Tensor
+        self.inference_time += current_milli_time() - start_time  ###
         pred=preds[3][0:1,...].asnumpy()  # Tensor [1, N, 11(xywh)]
         # nms
         pred = batch_nms(pred, self.conf_thresh, self.nms_thresh)  # numpy [1, n, 6(xyxy)]
@@ -46,7 +54,7 @@ class Yolov5Service():
         bbox = self.resize_pb( pred, self.test_size, self.org_shape)
         return bbox
 
-    def run(self, data):
+    def predict(self, data):
         return self._inference(self._preprocess(data))
 
     def resize_pb(self, pred_bbox, test_input_size, org_img_shape):
@@ -99,29 +107,51 @@ class Yolov5Service():
             cv2.imwrite(save_path, img)
         return img
 
+    def calc_APs(self):
+        # read images from test.txt
+        self.class_record   =   defaultdict(list)
+        img_list_file = cfg.DATASET_PATH / "test.txt"
+        with open(img_list_file, "r") as f:
+            lines = f.readlines()
+            img_list = [line.strip() for line in lines]
+        # predict all imgs, save result in class_record
+        for img_path in tqdm(img_list, ncols=120, smoothing=0.9 ):
+            self.predict_and_save(img_path)
+        self.inference_time = 1.0 * self.inference_time / len(img_list)
+        # calc mAP
+        APs = {}
+        for cls, data in self.class_record.items():
+            img_idxs = np.array([rec[0] for rec in data])
+            bbox_conf = np.array([rec[1] for rec in data], dtype=np.float32)
+            AP = voc_eval_ap50_95((img_idxs, bbox_conf), cls_name=cls)
+            APs[cls] = AP
+        mAP = np.mean(list(APs.values()), axis=0)  # [mAP@0.5, mAP@0.5:0.95]
+        return APs, mAP, self.inference_time
+
+    def predict_and_save(self, img_path):
+        # find img file
+        img = cv2.imread(img_path)
+        img_idx = Path(img_path).stem
+        # predict all valid bboxes in img [N, 6]
+        bboxes_prd = self.run(img)
+        # save to class_record
+        for bbox in bboxes_prd:
+            cls_name = self.Classes[int(bbox[5])]
+            self.class_record[cls_name].append([img_idx, bbox[:5]])
+
 
 
 if __name__ == "__main__":
     # image list
     context.set_context(mode=context.GRAPH_MODE, device_target="CPU")
-    IMG_PATH = Path(cfg.EVAL_DATASET_PATH).joinpath('JPEGImages')
-    img_list = np.array([x.name for x in IMG_PATH.iterdir()])
-    np.random.shuffle(img_list)
-    img_list[0] = '836.jpg'
     # predict
-    predictor = Yolov5Service()
+    predictor = Evaluator()
+    APs, mAP, infer_time = predictor.calc_APs()
+    for k, v in APs.items():
+        print('{:<20s}: ap50 {:.3f} | ap50_95 {:.3f}'.format(k, v[0], v[1]))
+        mAP += v
+    print('mAP', ' '*15, ': ap50 {0[0]:.3f} | ap50_95 {0[1]:.3f}'.format(mAP))
+    print('inference time: {}ms' .format(infer_time))
 
-    cv2.namedWindow('Predict', flags=cv2.WINDOW_NORMAL)
-    for img_name in img_list:
-        # read image
-        img = cv2.imread(str(IMG_PATH/img_name))
-        print('Show: ' + str(IMG_PATH/img_name))
-        print('Continue? ([y]/n)? ')
-        pred = predictor.run(img)
-        print(pred)
-        img = predictor.visualize(img, pred, score_thresh=0.)
-        cv2.imshow('Predict', img)
-        c = cv2.waitKey()
-        if c in [ord('n'), ord('N')]:
-            exit()
+
 

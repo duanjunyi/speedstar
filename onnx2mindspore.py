@@ -22,6 +22,7 @@ def parse_opt():
         print(f'Change image size to {img_size}')
     except:
         print(f'Image size: {opt.img_size}')
+
     # output
     if opt.output=='':
         opt.output = opt.weights.parent
@@ -33,7 +34,7 @@ def parse_opt():
 if __name__ == '__main__':
     opt = parse_opt()
     cmd = f'mindconverter --model_file {str(opt.weights)} \
-                --shape 2,3,{opt.img_size},{opt.img_size}  \
+                --shape 1,3,{opt.img_size},{opt.img_size}  \
                 --input_nodes images  \
                 --output_nodes output  \
                 --output {str(opt.output)}\

@@ -10,7 +10,7 @@ import sys
 import os.path as osp
 Base_dir = osp.dirname(osp.abspath(__file__))
 sys.path.append(osp.join(Base_dir, ".."))
-from yolov5_config import EVAL_DATASET_PATH as DATASET_PATH
+from yolov5_config import DATASET_PATH
 import numpy as np
 
 

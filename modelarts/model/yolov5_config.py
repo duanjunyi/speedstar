@@ -2,7 +2,7 @@
 import os.path as osp
 
 # 服务配置
-WEIGHT = 'yolov5s_datav3_640.pt'                  # 使用的模型
+WEIGHT = 'yolov5s_datav3_1024.pt'                  # 使用的模型
 MODEL_PATH = osp.abspath(osp.dirname(__file__))     # model文件夹路径
 WEIGHT_PATH = osp.join(MODEL_PATH, 'weights', WEIGHT)
 try:
