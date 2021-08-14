@@ -110,6 +110,7 @@ python export.py    --weights path\to\weight.pt --img 1024 --batch 1 --dynamic -
 
 ### 6.3 查看模型
 建议安装 [Netron Viewer](https://github.com/lutzroeder/netron/releases/) 可视化模型。
+
 ![model](https://gitee.com/junyi-duan/speedstar/raw/master/docs/onnx_model_visual.png)
 
 
@@ -142,6 +143,14 @@ os.environ['HOME'] = r'C:\Users\youname'
 - 权重ckpt文件（后缀为`.ckpt`）
 - 迁移前后权重映射（后缀为`.json`）
 - 转换报告（后缀为`.txt`）
+
+### 7.3 模型测试
+`mindspore\`文件夹下保存了与`mindspore`模型相关的文件，将转换得到的`.ckpt`权重文件放置于`weigths\`文件夹下，修改`yolov5_config.py`中的配置。
+
+接着运行：
+```
+python service.py
+```
 
 
 
