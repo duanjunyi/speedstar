@@ -149,8 +149,11 @@ os.environ['HOME'] = r'C:\Users\youname'
 
 接着运行：
 ```
-python service.py
+python predict.py
 ```
+
+### 7.4 部署
+本地运行`customize_service.py`，如果可以正确输出边框，说明配置正确。接着将`MindSpore`文件夹整体上传至OBS中，并选择从该文件夹构建模型。
 
 
 

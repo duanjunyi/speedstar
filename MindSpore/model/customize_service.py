@@ -1,7 +1,7 @@
 try:
-    from model_service.pytorch_model_service import PTServingBaseService
+    from model_service.model_service import SingleNodeService
 except:
-    from service_utils.tools import PTServingBaseService
+    from service_utils.tools import SingleNodeService
 from pathlib import Path
 BASE_DIR = Path(__file__).parent
 
@@ -14,24 +14,40 @@ from service_utils.tools import Resize,  batch_nms
 import yolov5_config as cfg
 from models.yolov5s import Model
 
+import threading
+import logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+context.set_context(mode=context.GRAPH_MODE, device_target="CPU")
 
-class Yolov5Service(PTServingBaseService):
+print(f"Model Path: {str(cfg.MODEL_PATH)}")
+
+class Yolov5Service(SingleNodeService):
 
     def __init__(self, model_name, model_path):
         super(Yolov5Service, self).__init__(model_name, model_path)
-        # context.set_context(mode=context.GRAPH_MODE, device_target="GPU")
         # 加载模型
         param_dict = load_checkpoint(str(cfg.WEIGHT_PATH))
         self.test_size = param_dict['module1_8.conv2d_0.weight'].shape[1]
-        print(f'Image size: {self.test_size}')
+        print(f'********Image size: {self.test_size}')
         self.yolo = Model(bs=1, img_size=self.test_size)  # batch size 默认为 1
         not_load_params = load_param_into_net(self.yolo, param_dict)
+        self.yolo.set_train(False)
 
         self.org_shape = (0, 0)
         self.conf_thresh = cfg.CONF_THRESH
         self.nms_thresh = cfg.NMS_THRESH
         self.Classes = np.array(cfg.Customer_DATA["CLASSES"])
         self.resize = Resize((self.test_size, self.test_size), correct_box=False)
+        self.network_warmup()
+
+    def network_warmup(self):
+        # 模型预热，否则首次推理的时间会很长
+        logger.info("warmup network ... \n")
+        images = np.array(np.random.randn(1, 3, 1024, 1024), dtype=np.float32)
+        inputs = Tensor(images, mindspore.float32)
+        inference_result = self.yolo(inputs)
+        logger.info("warmup network successfully ! \n")
 
     def _preprocess(self, data):
         pro_data = {}
@@ -54,6 +70,7 @@ class Yolov5Service(PTServingBaseService):
         # infer
         preds = self.yolo(input_batch)  # list of Tensor
         pred = preds[3][0:1,...].asnumpy()  # Tensor [1, N, 11(xywh)]
+        # print(pred[0, :10])
         # nms
         pred = batch_nms(pred, self.conf_thresh, self.nms_thresh)  # numpy [1, n, 6(xyxy)]
         pred = pred[0]

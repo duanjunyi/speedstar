@@ -1,5 +1,5 @@
 {
-    "model_algorithm": "image_classification",
+    "model_algorithm": "object_detection",
     "model_type": "PyTorch",
     "runtime": "python3.7",
     "dependencies": [

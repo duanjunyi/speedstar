@@ -1,32 +1,9 @@
 {
-    "model_algorithm": "image_classification",
+    "model_algorithm": "object_detection",
     "model_type": "MindSpore",
-    "runtime": "python3.7.5",
-    "dependencies": [
-		{
-			"installer": "pip",
-			"packages": [
-                {
-					"restraint": "ATLEAST",
-					"package_version": "1.2.0",
-					"package_name": "mindspore"
-				},
-                {
-					"restraint": "EXACT",
-					"package_version": "4.5.3.56",
-					"package_name": "opencv-python"
-				},
-                {
-					"restraint": "ATLEAST",
-					"package_version": "1.18.5",
-					"package_name": "numpy"
-				}
-			]
-
-		}
-	],
+    "runtime": "mindspore_1.2.0-py_37-cuda_10.1-ubuntu_1804-x86_64-latest",
     "apis": [{
-            "procotol": "https",
+        "procotol": "https",
             "url": "/",
             "method": "post",
             "request": {
@@ -49,7 +26,7 @@
                             "type": "array",
                             "items": [{
                                 "type": "string"
-                            }]
+                                }]
                         },
                         "detection_boxes": {
                             "type": "array",
@@ -60,23 +37,35 @@
                                 "items":[{
                                     "type": "number"
                                 }]
-                            }]
+                                }]
                         },
                         "detection_scores": {
                             "type": "array",
                             "items": [{
                                 "type": "number"
-                            }]
+                                }]
                         }
                     }
                 }
             }
         }
+    ],
+    "dependencies": [
+        {
+            "installer": "pip",
+            "packages": [
+                {
+                    "restraint": "EXACT",
+                    "package_version": "4.5.3.56",
+                    "package_name": "opencv-python"
+                },
+                {
+                    "restraint": "ATLEAST",
+                    "package_version": "1.18.5",
+                    "package_name": "numpy"
+                }
+            ]
+
+        }
     ]
-    // "metrics": {
-    //     "f1": 0.124555,
-    //     "recall": 0.171875,
-    //     "precision": 0.0023493892851938493,
-    //     "accuracy": 0.00746268656716417
-    // }
 }

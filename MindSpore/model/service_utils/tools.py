@@ -190,7 +190,7 @@ class Resize(object):
         return image
 
 
-class PTServingBaseService():
+class SingleNodeService():
     """ for local test """
     def __init__(self, arg1, arg2) -> None:
         pass
