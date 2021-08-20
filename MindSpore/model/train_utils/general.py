@@ -67,9 +67,9 @@ def check_img_size(img_size, s=32):
         print('WARNING: --img-size %g must be multiple of max stride %g, updating to %g' % (img_size, s, new_size))
     return new_size
 
-def one_cycle(y1=0.0, y2=1.0, steps=100):
-    # lambda function for sinusoidal ramp from y1 to y2
-    return lambda x: ((1 - math.cos(x * math.pi / steps)) / 2) * (y2 - y1) + y1
+# def one_cycle(y1=0.0, y2=1.0, steps=100):
+#     # lambda function for sinusoidal ramp from y1 to y2
+#     return lambda x: ((1 - math.cos(x * math.pi / steps)) / 2) * (y2 - y1) + y1
 #
 def bbox_ioa(box1, box2, eps=1E-7):
     """ Returns the intersection over box2 area given box1, box2. Boxes are x1y1x2y2

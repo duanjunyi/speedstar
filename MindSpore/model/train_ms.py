@@ -5,34 +5,21 @@ Usage:
 """
 
 import argparse
-import logging
-import random
 import sys
 import time
 from copy import deepcopy
 from pathlib import Path
-
-import math
 import numpy as np
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-import torch.optim.lr_scheduler as lr_scheduler
-import torch.utils.data
 import yaml
 from tqdm import tqdm
-
-FILE = Path(__file__).absolute()
-sys.path.append(FILE.parents[0].as_posix())  # add yolov5/ to path
-
 from mindspore.context import ParallelMode
-from mindspore import Tensor, context
+from mindspore import Tensor, context, nn
 from mindspore import load_checkpoint, load_param_into_net
-import val  # for end-of-epoch mAP
+from mindspore import dtype as ms
 from models.yolov5s import Model
 from train_utils.yolo_dataset import create_dataloader
-from train_utils.general import labels_to_class_weights, check_img_size, one_cycle, colorstr, fitness
-from train_utils.loss_ms import ComputeLoss
+from train_utils.general import labels_to_class_weights, check_img_size, colorstr, fitness
+from train_utils.loss_ms import ComputeLoss, ModelWithLoss, TrainingWrapper
 
 PROJ_DIR = Path(__file__).resolve()   # TODO 项目根目录，以下所有目录相对于此
 
@@ -81,7 +68,7 @@ def train(hyp,  opt):
     val_path = data_dict['val']
 
     # 训练集
-    data_loader, dataset = create_dataloader(train_path, imgsz, batch_size, stride=gs, hyp=hyp, augment=True, cache=opt.cache_images,
+    dataloader, dataset = create_dataloader(train_path, imgsz, batch_size, stride=gs, hyp=hyp, augment=True, cache=opt.cache_images,
                       rect=opt.rect, workers=opt.workers, image_weights=opt.image_weights, multi_process=opt.multi_process)
 
     nb = len(dataset) // batch_size # number of batches
@@ -92,7 +79,7 @@ def train(hyp,  opt):
     #                                   workers=workers,
     #                                   pad=0.5, prefix=colorstr('val: '))[0]
 
-    # Model
+    # --- Model
     if weights.suffix=='.ckpt' and opt.resume:  # 如果给了预训练模型，并且resume，加载预训练模型
         # TODO 加载模型
         param_dict = load_checkpoint(str(weights))
@@ -114,140 +101,52 @@ def train(hyp,  opt):
     model.class_weights = labels_to_class_weights(dataset.labels, nc) * nc  # attach class weights
     model.names = names
 
-    # Optimizer
+    # --- Optimizer
     nbs = 64  # nominal batch size
     accumulate = max(round(nbs / batch_size), 1)  # accumulate loss before optimizing
     hyp['weight_decay'] *= batch_size * accumulate / nbs  # scale weight_decay
-    logger.info(f"Scaled weight_decay = {hyp['weight_decay']}")
-
-    pg0, pg1, pg2 = [], [], []  # optimizer parameter groups
-    for k, v in model.named_modules():
-        if hasattr(v, 'bias') and isinstance(v.bias, nn.Parameter):
-            pg2.append(v.bias)  # biases
-        if isinstance(v, nn.BatchNorm2d):
-            pg0.append(v.weight)  # no decay
-        elif hasattr(v, 'weight') and isinstance(v.weight, nn.Parameter):
-            pg1.append(v.weight)  # apply decay
-
-    if opt.adam:
-        optimizer = optim.Adam(pg0, lr=hyp['lr0'], betas=(hyp['momentum'], 0.999))  # adjust beta1 to momentum
-    else:
-        optimizer = optim.SGD(pg0, lr=hyp['lr0'], momentum=hyp['momentum'], nesterov=True)
-
-    optimizer.add_param_group({'params': pg1, 'weight_decay': hyp['weight_decay']})  # add pg1 with weight_decay
-    optimizer.add_param_group({'params': pg2})  # add pg2 (biases)
-    logger.info('Optimizer groups: %g .bias, %g conv.weight, %g other' % (len(pg2), len(pg1), len(pg0)))
-    del pg0, pg1, pg2
-
+    print(f"Scaled weight_decay = {hyp['weight_decay']}")
     # 学习率
-    if opt.linear_lr:
-        lf = lambda x: (1 - x / (epochs - 1)) * (1.0 - hyp['lrf']) + hyp['lrf']  # linear
+    lr = nn.dynamic_lr.cosine_decay_lr(0, hyp['lr0'], nb*opt.epochs, nb, 5)
+    if opt.adam:
+        optimizer = nn.Adam(params=model.trainable_params(), learning_rate=lr,
+                            betas1=hyp['momentum'], weight_decay=hyp['weight_decay'])
     else:
-        lf = one_cycle(1, hyp['lrf'], epochs)  # cosine 1->hyp['lrf']
-    scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lf)
+        optimizer = nn.SGD(params=model.trainable_params(), learning_rate=lr,
+                            momentum=hyp['momentum'], nesterov=True, weight_decay=hyp['weight_decay'])
 
-
-    # Start training
-    t0 = time.time()
-    nw = max(round(hyp['warmup_epochs'] * nb), 1000)  # number of warmup iterations, max(3 epochs, 1k iterations)
-    # nw = min(nw, (epochs - start_epoch) / 2 * nb)  # limit warmup to < 1/2 of training
-    last_opt_step = -1
-    maps = np.zeros(nc)  # mAP per class
-    results = (0, 0, 0, 0, 0, 0, 0)  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
-    scheduler.last_epoch = start_epoch - 1  # do not move
+    # --- connect
     compute_loss = ComputeLoss(model)  # init loss class
+    model_train = TrainingWrapper(ModelWithLoss(model, compute_loss), optimizer, accumulate)
+    model_train.set_train()
 
+    # --- Start training
+    t0 = time.time()
+    n_warm = max(round(hyp['warmup_epochs'] * nb), 1000)  # number of warmup iterations, max(3 epochs, 1k iterations)
+    mAPs = np.zeros(nc)  # mAP per class
+    results = (0, 0, 0, 0, 0, 0, 0)  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
+    start_epoch = 0
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
-        model.train()
-
-        mloss = torch.zeros(4, device=device)  # mean losses
-        pbar = enumerate(dataloader)
         print(('\n' + '%10s' * 8) % ('Epoch', 'box', 'obj', 'cls', 'total', 'labels', 'img_size'))
-        pbar = tqdm(pbar, total=nb)  # progress bar
-        optimizer.zero_grad()
-        for i, (imgs, targets, paths, _) in pbar:  # batch -------------------------------------------------------------
-            ni = i + nb * epoch  # number integrated batches (since train start)
-            imgs = imgs.to(device, non_blocking=True).float() / 255.0  # uint8 to float32, 0-255 to 0.0-1.0
-
-            # Warmup
-            if ni <= nw:
-                xi = [0, nw]  # x interp
-                # model.gr = np.interp(ni, xi, [0.0, 1.0])  # iou loss ratio (obj_loss = 1.0 or iou)
-                accumulate = max(1, np.interp(ni, xi, [1, nbs / batch_size]).round())
-                for j, x in enumerate(optimizer.param_groups):
-                    # bias lr falls from 0.1 to lr0, all other lrs rise from 0.0 to lr0
-                    x['lr'] = np.interp(ni, xi, [hyp['warmup_bias_lr'] if j == 2 else 0.0, x['initial_lr'] * lf(epoch)])
-                    if 'momentum' in x:
-                        x['momentum'] = np.interp(ni, xi, [hyp['warmup_momentum'], hyp['momentum']])
-
-            # Multi-scale
-            if opt.multi_scale:
-                sz = random.randrange(imgsz * 0.5, imgsz * 1.5 + gs) // gs * gs  # size
-                sf = sz / max(imgs.shape[2:])  # scale factor
-                if sf != 1:
-                    ns = [math.ceil(x * sf / gs) * gs for x in imgs.shape[2:]]  # new shape (stretched to gs-multiple)
-                    imgs = F.interpolate(imgs, size=ns, mode='bilinear', align_corners=False)
+        mloss = Tensor([0, 0, 0, 0], dtype=ms.float32)  # mean losses
+        pbar = tqdm(enumerate(dataloader), total=nb)
+        for i, data in pbar:  # batch -------------------------------------------------
+            imgs = Tensor.from_numpy(data["images"].astype(np.float) / 255.0)  # uint8 to float32, 0-255 to 0.0-1.0
+            labels = Tensor.from_numpy(data["labels"])
 
             # forward
-            pred = model(imgs)
-            loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
-            # Backward
-            scaler.scale(loss).backward()
-
-            # Optimize
-            if ni - last_opt_step >= accumulate:
-                scaler.step(optimizer)  # optimizer.step
-                scaler.update()
-                optimizer.zero_grad()
-                if ema:
-                    ema.update(model)
-                last_opt_step = ni
+            loss, loss_items = model_train(imgs, labels)
 
             # Print
             mloss = (mloss * i + loss_items) / (i + 1)  # update mean losses
             s = ('%10s' * 2 + '%10.4g' * 6) % (
-                f'{epoch}/{epochs - 1}', *mloss, targets.shape[0], imgs.shape[-1])
+                f'{epoch}/{epochs - 1}', *mloss, labels.shape[0], imgs.shape[-1])
             pbar.set_description(s)
-
             # end batch ------------------------------------------------------------------------------------------------
 
-        # Scheduler
-        lr = [x['lr'] for x in optimizer.param_groups]  # for loggers
-        scheduler.step()
+        # mAP TODO
+        # Save model TODO
 
-        # mAP
-        final_epoch = epoch + 1 == epochs
-        if not noval or final_epoch:  # Calculate mAP
-            results, maps, _ = val.run(data_dict,
-                                        batch_size=batch_size * 2,
-                                        imgsz=imgsz_val,
-                                        model=ema.ema,
-                                        single_cls=single_cls,
-                                        dataloader=valloader,
-                                        save_dir=save_dir,
-                                        save_json=final_epoch,
-                                        verbose=nc < 50 and final_epoch,
-                                        plots=plots and final_epoch,
-                                        compute_loss=compute_loss)
-
-            # Update best mAP
-            fi = fitness(np.array(results).reshape(1, -1))  # weighted combination of [P, R, mAP@.5, mAP@.5-.95]
-            if fi > best_fitness:
-                best_fitness = fi
-
-            # Save model
-            if (not nosave) or (final_epoch):  # if save
-                ckpt = {'epoch': epoch,
-                        'best_fitness': best_fitness,
-                        'training_results': results_file.read_text(),
-                        'model': deepcopy(de_parallel(model)).half(),
-                        'optimizer': optimizer.state_dict()}
-
-                # Save last, best and delete
-                torch.save(ckpt, last)
-                if best_fitness == fi:
-                    torch.save(ckpt, best)
-                del ckpt
         # end epoch ----------------------------------------------------------------------------------------------------
     # end training -----------------------------------------------------------------------------------------------------
     print(f'{epoch - start_epoch + 1} epochs completed in {(time.time() - t0) / 3600:.3f} hours.\n')
@@ -259,7 +158,7 @@ def parse_opt(known=False):
     # option file
     parser.add_argument('--option', type=str, default='', help='option.yaml path')
     # train config
-    parser.add_argument('--device', type=str, default='CPU', help='CPU, GPU, ASCEND')
+    parser.add_argument('--device', type=str, default='GPU', help='CPU, GPU, ASCEND')
     parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument('--batch_size', type=int, default=16, help='total batch size for all GPUs')
     parser.add_argument('--img_size', nargs='+', type=int, default=[1024, 1024], help='[train, val] image sizes')

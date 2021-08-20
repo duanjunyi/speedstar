@@ -1,16 +1,16 @@
 # Loss functions
 from general import colorstr
-from mindspore import context
 import numpy as np
-from mindspore import dataset as ds
-from mindspore import nn, Tensor, Model, dtype
-import time
-from mindspore.train.callback import Callback, LossMonitor
+from mindspore import nn, Tensor, Model, dtype, context
+from mindspore.context import ParallelMode
+from mindspore.parallel._auto_parallel_context import auto_parallel_context
+from mindspore.communication.management import get_group_size
+from mindspore.ops import composite as C
+from mindspore.ops import operations as P
+from mindspore.ops import functional as F
 import mindspore as ms
 import mindspore.ops as ops
-# from mindspore.nn.loss.loss import Loss
 import math
-
 ms.common.set_seed(0)
 
 def clamp(input: Tensor, min=None, max=None):
@@ -301,6 +301,64 @@ class ComputeLoss:
 
         return tcls, tbox, indices, anch
 
+class ModelWithLoss(nn.Cell):
+    """
+    connect model with loss
+    """
+    def __init__(self, model, loss_fn):
+        self.model = model
+        self.loss_fn = loss_fn
+    def construct(self, imgs, label):
+        pred = self.model(imgs)
+        loss, loss_item = self.loss_fn(pred[0:3])
+        return loss, loss_item
+
+class TrainingWrapper():
+    """Training wrapper."""
+
+    def __init__(self, network, optimizer, accumulate=1, sens=1.0):
+        super(TrainingWrapper, self).__init__(auto_prefix=False)
+        self.network = network
+        self.network.set_grad()
+        self.weights = optimizer.parameters
+        self.optimizer = optimizer
+        self.grad = C.GradOperation(get_by_list=True, sens_param=True)
+        self.sens = sens
+        self.reducer_flag = False
+        self.grad_reducer = None
+        self.parallel_mode = context.get_auto_parallel_context("parallel_mode")
+        if self.parallel_mode in [ParallelMode.DATA_PARALLEL, ParallelMode.HYBRID_PARALLEL]:
+            self.reducer_flag = True
+        if self.reducer_flag:
+            mean = context.get_auto_parallel_context("gradients_mean")
+            if auto_parallel_context().get_device_num_is_set():
+                degree = context.get_auto_parallel_context("device_num")
+            else:
+                degree = get_group_size()
+            self.grad_reducer = nn.DistributedGradReducer(optimizer.parameters, mean, degree)
+        # accumulate grads
+        self.accumulate = accumulate
+        self.iter_cnt = 0
+        self.acc_grads = None
+
+    def __call__(self, imgs, labels):
+        self.iter_cnt += 1
+        weights = self.weights
+        loss, loss_items = self.network(imgs, labels)
+        sens = P.Fill()(P.DType()(loss), P.Shape()(loss), self.sens)
+        grads = self.grad(self.network, weights)(imgs, labels, sens)
+        # accumulate grads
+        if self.iter_cnt == 1: # 积累周期开始
+            self.acc_grads = list(grads)
+        else: # 积累
+            for i in range(len(grads)):
+                self.acc_grads[i] += grads[i]
+        if self.iter_cnt % self.accumulate == 0:  # 更新
+            self.iter_cnt = 0
+            if self.reducer_flag:
+                self.acc_grads = self.grad_reducer(self.acc_grads)
+            self.optimizer(self.acc_grads)
+        return loss, loss_items
 
 # test
 if __name__ == '__main__':
@@ -337,3 +395,4 @@ if __name__ == '__main__':
     loss, loss_items = compute_loss(preds, targets)
     print(loss)
     print(loss_items)
+    from mindspore import Model as m
