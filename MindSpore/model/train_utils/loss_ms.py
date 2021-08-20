@@ -1,7 +1,8 @@
 # Loss functions
+import mindspore
 from general import colorstr
 import numpy as np
-from mindspore import nn, Tensor, Model, dtype, context
+from mindspore import nn, Tensor, Model, dtype, context, Parameter
 from mindspore.context import ParallelMode
 from mindspore.parallel._auto_parallel_context import auto_parallel_context
 from mindspore.communication.management import get_group_size
@@ -57,17 +58,17 @@ def bbox_iou(box1, box2, x1y1x2y2=True, GIoU=False, DIoU=False, CIoU=False, eps=
             rho2 = ((b2_x1 + b2_x2 - b1_x1 - b1_x2) ** 2 +
                     (b2_y1 + b2_y2 - b1_y1 - b1_y2) ** 2) / 4  # center distance squared
             if DIoU:
-                return iou - rho2 / c2  # DIoU
+                iou = iou - rho2 / c2  # DIoU
             elif CIoU:  # https://github.com/Zzh-tju/DIoU-SSD-pytorch/blob/master/utils/box/box_utils.py#L47
                 v = (4 / math.pi ** 2) * op_pow(op_atan(w2 / h2) - op_atan(w1 / h1), 2)
                 #with torch.no_grad():
                 alpha = v / (v - iou + (1 + eps))
-                return iou - (rho2 / c2 + v * alpha)  # CIoU
+                iou = iou - (rho2 / c2 + v * alpha)  # CIoU
         else:  # GIoU https://arxiv.org/pdf/1902.09630.pdf
             c_area = cw * ch + eps  # convex area
-            return iou - (c_area - union) / c_area  # GIoU
-    else:
-        return iou  # IoU
+            iou = iou - (c_area - union) / c_area  # GIoU
+
+    return iou  # IoU
 
 class BCEBlurWithLogitsLoss(nn.Cell):
     # BCEwithLogitLoss() with reduced missing label effects.
@@ -146,7 +147,7 @@ class QFocalLoss(nn.Cell):
             return loss
 
 
-class ComputeLoss:
+class ComputeLoss(nn.Cell):
     # Compute losses
     def __init__(self, model, autobalance=False):  #TODO model.hyp
         super(ComputeLoss, self).__init__()
@@ -165,7 +166,7 @@ class ComputeLoss:
         if g > 0:
             BCEcls, BCEobj = FocalLoss(BCEcls, g), FocalLoss(BCEobj, g)
 
-        self.balance = {3: [4.0, 1.0, 0.4]}.get(3, [4.0, 1.0, 0.25, 0.06, .02])  # P3-P7
+        self.balance = Parameter(Tensor([4.0, 1.0, 0.4], dtype.float32), requires_grad=False) #{3: [4.0, 1.0, 0.4]}.get(3, [4.0, 1.0, 0.25, 0.06, .02])  # P3-P7
         self.ssi = 1 if autobalance else 0  # stride 16 index
         self.BCEcls, self.BCEobj, self.gr, self.hyp, self.autobalance = BCEcls, BCEobj, model.gr, h, autobalance
         self.na = 3 # num of anchors
@@ -193,7 +194,7 @@ class ComputeLoss:
         self.stack = ops.Stack()
         self.logical_and = ops.LogicalAnd()
 
-    def __call__(self, p, targets):  # predictions, targets, model
+    def construct(self, p, targets):  # predictions, targets, model
         lcls, lbox, lobj = Tensor(0, dtype.float32), Tensor(0, dtype.float32), Tensor(0, dtype.float32)
         tcls, tbox, indices, anchors = self.build_targets(p, targets)  # targets
 
@@ -222,8 +223,8 @@ class ComputeLoss:
 
                 # Classification
                 if self.nc > 1:  # cls loss (only if multiple classes)
-                    t = ps[:, 5:].fill(self.cn)  #Tensor(np.full_like(ps[:, 5:], self.cn, np.float))
-                    t[list(range(n)), tcls[i]] = self.cp
+                    t = Tensor.from_numpy(np.full_like(ps[:, 5:], self.cn, np.float)).astype(dtype.float32)
+                    t[list(range(n)), tcls[i]] = Tensor(self.cp, dtype.float32)
                     lcls += self.BCEcls(ps[:, 5:], t)  # BCE
 
                 # Append targets to text file
@@ -236,11 +237,13 @@ class ComputeLoss:
                 self.balance[i] = self.balance[i] * 0.9999 + 0.0001 / obji.item()
 
         if self.autobalance:
-            self.balance = [x / self.balance[self.ssi] for x in self.balance]
+            for i in len(self.balance):
+                self.balance[i] = self.balance[i] / self.balance[self.ssi]
+            # self.balance = [x / self.balance[self.ssi] for x in self.balance]
         lbox *= self.hyp['box']
         lobj *= self.hyp['obj']
         lcls *= self.hyp['cls']
-        bs = tobj.shape[0]  # batch size
+        bs = p[0].shape[0]  # batch size
 
         loss = lbox + lobj + lcls
         return loss * bs, self.cat0((lbox, lobj, lcls, loss))
@@ -269,16 +272,16 @@ class ComputeLoss:
             if nt:
                 # Matches
                 r = t[:, :, 4:6] / anchors[:, None]  # wh ratio
-                j = self.max(r, 1. / r).max(2) < self.hyp['anchor_t']  # compare
+                j = Tensor.from_numpy(self.max(r, 1./r).asnumpy().max(2)) < self.hyp['anchor_t']  # compare
                 # j = wh_iou(anchors, t[:, 4:6]) > model.hyp['iou_t']  # iou(3,n)=wh_iou(anchors(3,2), gwh(n,2))
                 t = Tensor(t.asnumpy()[j.asnumpy()], t.dtype)  # filter
 
                 # Offsets
                 gxy = t[:, 2:4]  # grid xy
                 gxi = gain[[2, 3]] - gxy  # inverse
-                j, k = self.logical_and((gxy % 1. < g), (gxy > 1.)).T
-                l, m = self.logical_and((gxi % 1. < g), (gxi > 1.)).T
-                j = self.stack((j.fill(True), j, k, l, m)).asnumpy()
+                j, k = np.logical_and((gxy.asnumpy() % 1. < g), (gxy.asnumpy() > 1.)).T
+                l, m = np.logical_and((gxi.asnumpy() % 1. < g), (gxi.asnumpy() > 1.)).T
+                j = np.stack((np.full_like(j, True), j, k, l, m))
                 t = Tensor(self.repeat(t, (5, 1, 1)).asnumpy()[j], dtype=t.dtype)
                 offsets = Tensor((ops.zeros_like(gxy)[None] + off[:, None]).asnumpy()[j], off.dtype)
             else:
@@ -294,7 +297,7 @@ class ComputeLoss:
 
             # Append
             a = t[:, 6].astype(dtype.int64)  # anchor indices
-            indices.append((b, a, clamp(gj, 0, gain[3] - 1), clamp(gi, 0, gain[2] - 1)))  # image, anchor, grid indices
+            indices.append((b, a, clamp(gj, 0, gain[3].asnumpy().item() - 1), clamp(gi, 0, gain[2].asnumpy().item() - 1)))   # image, anchor, grid indices
             tbox.append(self.cat1((gxy - gij, gwh)))  # box
             anch.append(anchors[a])  # anchors
             tcls.append(c)  # class
@@ -369,6 +372,9 @@ if __name__ == '__main__':
     from models.yolov5s import Model
     import yaml
     from train_utils.general import labels_to_class_weights
+    from mindspore import context
+    context.set_context(mode=context.GRAPH_MODE, device_target='CPU')
+
     # model
     model = Model(img_size=1024, bs=8)
     hpy_file = BASE_DIR / '../../../data/hyps/hyp.speedstar.yaml'
