@@ -35,6 +35,7 @@ class Evaluator():
         self.nms_thresh = cfg.NMS_THRESH
         self.Classes = np.array(cfg.Customer_DATA["CLASSES"])
         self.resize = Resize((self.test_size, self.test_size), correct_box=False)
+        self.inference_time = 0
 
     def _preprocess(self, img):
         self.org_shape = img.shape[:2]
@@ -133,7 +134,7 @@ class Evaluator():
         img = cv2.imread(img_path)
         img_idx = Path(img_path).stem
         # predict all valid bboxes in img [N, 6]
-        bboxes_prd = self.run(img)
+        bboxes_prd = self.predict(img)
         # save to class_record
         for bbox in bboxes_prd:
             cls_name = self.Classes[int(bbox[5])]

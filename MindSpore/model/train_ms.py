@@ -39,10 +39,9 @@ PROJ_DIR = Path(__file__).resolve()   # TODO 项目根目录，以下所有目�
 
 def train(hyp,  opt):
     # opt
-    epochs, batch_size, weights, data, cfg, resume, noval, nosave, device= \
-        opt.epochs, opt.batch_size, opt.weights, opt.data, opt.cfg, \
-        opt.resume, opt.noval, opt.nosave, opt.device
-
+    epochs, batch_size, weights, data, noval, nosave= \
+        opt.epochs, opt.batch_size, opt.weights, opt.data, opt.noval, opt.nosave
+    context.set_context(mode=context.GRAPH_MODE, device_target=opt.device)  #change "GPU" when needed
     context.reset_auto_parallel_context()
     parallel_mode = ParallelMode.STAND_ALONE
     context.set_auto_parallel_context(parallel_mode=parallel_mode, gradients_mean=True, device_num=1)

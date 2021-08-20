@@ -24,7 +24,7 @@ if __name__ == "__main__":
         img = cv2.imread(str(IMG_PATH/img_name))
         print('Show: ' + str(IMG_PATH/img_name))
         print('Continue? ([y]/n)? ')
-        pred = predictor.run(img)
+        pred = predictor.predict(img)
         print(pred)
         img = predictor.visualize(img, pred, score_thresh=0.)
         cv2.imshow('Predict', img)

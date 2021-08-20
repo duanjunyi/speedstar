@@ -246,4 +246,5 @@ crashlytics-build.properties
 fabric.properties
 
 testcode/
-speedstar/
+datav*/
+somas_meta/
