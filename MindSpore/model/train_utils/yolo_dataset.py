@@ -12,8 +12,8 @@ import numpy as np
 from tqdm import tqdm
 from pathlib import Path
 from PIL import Image, ExifTags
-from augmentations import augment_hsv, copy_paste, letterbox, mixup, random_perspective
-from general import xywhn2xyxy, xyxy2xywhn, xyn2xy, segments2boxes
+from train_utils.augmentations import augment_hsv, copy_paste, letterbox, mixup, random_perspective
+from train_utils.general import xywhn2xyxy, xyxy2xywhn, xyn2xy, segments2boxes
 import mindspore.dataset as de
 cv2.setNumThreads(0)
 

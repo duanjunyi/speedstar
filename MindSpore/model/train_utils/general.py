@@ -6,11 +6,44 @@ from mindspore import Tensor
 import numpy as np
 import pandas as pd
 import math
+from pathlib import Path
+import torch
 
 # Settings
 np.set_printoptions(linewidth=320, formatter={'float_kind': '{:11.5g}'.format})  # format short g, %precision=5
 pd.options.display.max_columns = 10
 cv2.setNumThreads(0)  # prevent OpenCV from multithreading (incompatible with PyTorch DataLoader)
+
+def check_dataset(data, autodownload=False):
+    # Download dataset if not found locally
+    path = Path(data.get('path', ''))  # optional 'path' field
+    if path:
+        for k in 'train', 'val', 'test':
+            if data.get(k):  # prepend path
+                data[k] = str(path / data[k]) if isinstance(data[k], str) else [str(path / x) for x in data[k]]
+
+    train, val, test, s = [data.get(x) for x in ('train', 'val', 'test', 'download')]
+    if val:
+        val = [Path(x).resolve() for x in (val if isinstance(val, list) else [val])]  # val path
+        if not all(x.exists() for x in val):
+            print('\nWARNING: Dataset not found, nonexistent paths: %s' % [str(x) for x in val if not x.exists()])
+            if s and autodownload:  # download script
+                if s.startswith('http') and s.endswith('.zip'):  # URL
+                    f = Path(s).name  # filename
+                    print(f'Downloading {s} ...')
+                    torch.hub.download_url_to_file(s, f)
+                    root = path.parent if 'path' in data else '..'  # unzip directory i.e. '../'
+                    Path(root).mkdir(parents=True, exist_ok=True)  # create root
+                    r = os.system(f'unzip -q {f} -d {root} && rm {f}')  # unzip
+                elif s.startswith('bash '):  # bash script
+                    print(f'Running {s} ...')
+                    r = os.system(s)
+                else:  # python script
+                    r = exec(s, {'yaml': data})  # return None
+                print('Dataset autodownload %s\n' % ('success' if r in (0, None) else 'failure'))  # print result
+            else:
+                raise Exception('Dataset not found.')
+
 
 def colorstr(*input):
     # Colors a string https://en.wikipedia.org/wiki/ANSI_escape_code, i.e.  colorstr('blue', 'hello world')

@@ -3,7 +3,7 @@
 Usage:
     $ python path/to/train.py --data coco128.yaml --weights yolov5s.pt --img 640
 """
-
+import os
 import argparse
 import sys
 import time
@@ -18,11 +18,10 @@ from mindspore import load_checkpoint, load_param_into_net
 from mindspore import dtype as ms
 from models.yolov5s import Model
 from train_utils.yolo_dataset import create_dataloader
-from train_utils.general import labels_to_class_weights, check_img_size, colorstr, fitness
+from train_utils.general import labels_to_class_weights, check_img_size, colorstr, fitness, check_dataset
 from train_utils.loss_ms import ComputeLoss, ModelWithLoss, TrainingWrapper
 
-PROJ_DIR = Path(__file__).resolve()   # TODO 项目根目录，以下所有目录相对于此
-
+PROJ_DIR = Path().cwd()
 
 def train(hyp,  opt):
     # opt
@@ -40,12 +39,7 @@ def train(hyp,  opt):
     last = weight_dir / 'last.pt'
     best = weight_dir / 'best.pt'
     results_file = save_dir / 'results.txt'
-
-    # Image sizes
-    gs = 32  # grid size (max stride)
-    nl = 3  # number of detection layers (used for scaling hyp['obj'])
-    imgsz, imgsz_val = [check_img_size(x, gs) for x in opt.img_size]  # verify imgsz are gs-multiples
-
+    
     # Hyperparameters
     if isinstance(hyp, str):
         with open(hyp) as f:
@@ -57,6 +51,11 @@ def train(hyp,  opt):
         yaml.safe_dump(hyp, f, sort_keys=False)
     with open(save_dir / 'opt.yaml', 'w') as f:
         yaml.safe_dump(vars(opt), f, sort_keys=False)
+    
+    # Image sizes
+    gs = 32  # grid size (max stride)
+    nl = 3  # number of detection layers (used for scaling hyp['obj'])
+    imgsz, imgsz_val = [check_img_size(x, gs) for x in opt.img_size]  # verify imgsz are gs-multiples
 
     # datasest config
     with open(data) as f:
@@ -64,8 +63,10 @@ def train(hyp,  opt):
     nc = int(data_dict['nc'])  # number of classes
     names = data_dict['names']  # class names
     assert len(names) == nc, '%g names found for nc=%g dataset in %s' % (len(names), nc, data)  # check
+    check_dataset(data_dict)
     train_path = data_dict['train']
     val_path = data_dict['val']
+    
 
     # 训练集
     dataloader, dataset = create_dataloader(train_path, imgsz, batch_size, stride=gs, hyp=hyp, augment=True, cache=opt.cache_images,
@@ -157,23 +158,18 @@ def parse_opt(known=False):
     parser = argparse.ArgumentParser()
     # option file
     parser.add_argument('--option', type=str, default='', help='option.yaml path')
-    # train config
-    parser.add_argument('--device', type=str, default='GPU', help='CPU, GPU, ASCEND')
-    parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--batch_size', type=int, default=16, help='total batch size for all GPUs')
-    parser.add_argument('--img_size', nargs='+', type=int, default=[1024, 1024], help='[train, val] image sizes')
-    parser.add_argument('--resume', default=False, help='resume most recent training')
     opt = parser.parse_known_args()[0] if known else parser.parse_args()
-    opt.multi_process = (opt.device == 'GPU')
     # read option file
     opt_file = PROJ_DIR / opt.option
     assert opt_file.exists(), "opt yaml does not exist"
     with opt_file.open('r') as f:
         opt = argparse.Namespace(**yaml.safe_load(f))  # replace
     # check weights file
+    opt.multi_process = (opt.device == 'GPU')
     opt.weights = PROJ_DIR / opt.weights
     assert opt.weights.exists(), 'ERROR: --resume weights checkpoint does not exist'
     print('Resuming training from %s' % str(opt.weights))
+    opt.weights = str(opt.weights)
     # print
     print(colorstr('train: ') + ', '.join(f'{k}={v}' for k, v in vars(opt).items()))
     return opt

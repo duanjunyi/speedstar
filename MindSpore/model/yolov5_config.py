@@ -13,7 +13,7 @@ WEIGHT_PATH = MODEL_PATH / 'weights' / WEIGHT
 #     IMG_SIZE = 640
 
 # 本地测试配置
-DATASET_PATH = MODEL_PATH / '../../data/datav3'  # 测试用的数据集
+DATASET_PATH = MODEL_PATH / '../../Datasetv3'  # 测试用的数据集
 
 # 推理配置
 NMS_THRESH =0.1

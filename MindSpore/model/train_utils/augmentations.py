@@ -6,7 +6,7 @@ import cv2
 import math
 import numpy as np
 
-from general import segment2box, resample_segments, bbox_ioa
+from train_utils.general import segment2box, resample_segments, bbox_ioa
 
 
 def augment_hsv(im, hgain=0.5, sgain=0.5, vgain=0.5):

@@ -1,5 +1,5 @@
 # Loss functions
-from general import colorstr
+from train_utils.general import colorstr
 import numpy as np
 from mindspore import nn, Tensor, Model, dtype, context
 from mindspore.context import ParallelMode
