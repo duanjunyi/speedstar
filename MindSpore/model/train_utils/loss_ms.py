@@ -306,6 +306,7 @@ class ModelWithLoss(nn.Cell):
     connect model with loss
     """
     def __init__(self, model, loss_fn):
+        super(ModelWithLoss,self).__init__()
         self.model = model
         self.loss_fn = loss_fn
     def construct(self, imgs, label):
@@ -313,11 +314,11 @@ class ModelWithLoss(nn.Cell):
         loss, loss_item = self.loss_fn(pred[0:3])
         return loss, loss_item
 
-class TrainingWrapper():
+class TrainingWrapper(nn.Cell):
     """Training wrapper."""
 
     def __init__(self, network, optimizer, accumulate=1, sens=1.0):
-        super(TrainingWrapper, self).__init__(auto_prefix=False)
+        super(TrainingWrapper, self).__init__()
         self.network = network
         self.network.set_grad()
         self.weights = optimizer.parameters

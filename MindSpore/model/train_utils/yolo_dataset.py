@@ -283,7 +283,7 @@ def create_dataloader(path, imgsz, batch_size, stride=32, hyp=None, augment=Fals
     ds = ds.map(normal_labelsize_map, input_columns=["labels"], output_columns=["labels", "labelsize"],
                 column_order=["images", "labels", "labelsize"], num_parallel_workers=nw, python_multiprocessing=multi_process)
     # batch map,  drop=True
-    ds = ds.batch(batch_size, num_parallel_workers=min(4, nw), drop_remainder=True, python_multiprocessing=multi_process)
+    ds = ds.batch(batch_size, num_parallel_workers=min(4, nw), per_batch_map = None, drop_remainder=True, python_multiprocessing=False)
     # post map
     ds = ds.map(post_map, input_columns=["labels", "labelsize"], output_columns=["labels"],
                 column_order=["images", "labels"], num_parallel_workers=nw, python_multiprocessing=multi_process)
@@ -443,13 +443,13 @@ if __name__ == '__main__':
     import sys
     from pathlib import Path
     import yaml
-    BASE_DIR = Path(__file__).resolve().parent
-    PROJ_DIR = BASE_DIR / '../../..'
-    sys.path.append(str(BASE_DIR.joinpath('..').resolve()))
+    PROJ_DIR = Path(__file__).resolve().parent.parent
+    #PROJ_DIR = BASE_DIR / '../../..'
+    #sys.path.append(str(BASE_DIR.joinpath('..').resolve()))
     from train_utils.general import labels_to_class_weights
     # config
-    data_path = PROJ_DIR / 'data/datav3/test.txt'
-    hpy_path = PROJ_DIR / 'data/hyps/hyp.speedstar.yaml'
+    data_path = PROJ_DIR / 'Data/test.txt'
+    hpy_path = PROJ_DIR / 'config/hyp.speedstar.yaml'
     with open(hpy_path) as f:
             hyp = yaml.safe_load(f)
 
@@ -471,5 +471,4 @@ if __name__ == '__main__':
         print(type(data["images"]))
         print(type(data["images"][0]))
         print(data["labels"])
-        exit()
 

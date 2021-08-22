@@ -47,6 +47,7 @@ def train(hyp,  opt):
     print(colorstr('hyperparameters: ') + ', '.join(f'{k}={v}' for k, v in hyp.items()))
 
     # Save run settings
+    opt.weights= str(opt.weights)
     with open(save_dir / 'hyp.yaml', 'w') as f:
         yaml.safe_dump(hyp, f, sort_keys=False)
     with open(save_dir / 'opt.yaml', 'w') as f:
@@ -108,7 +109,7 @@ def train(hyp,  opt):
     hyp['weight_decay'] *= batch_size * accumulate / nbs  # scale weight_decay
     print(f"Scaled weight_decay = {hyp['weight_decay']}")
     # 学习率
-    lr = nn.dynamic_lr.cosine_decay_lr(0, hyp['lr0'], nb*opt.epochs, nb, 5)
+    lr = nn.dynamic_lr.cosine_decay_lr(0.0, hyp['lr0'], nb*opt.epochs, nb, 5)
     if opt.adam:
         optimizer = nn.Adam(params=model.trainable_params(), learning_rate=lr,
                             betas1=hyp['momentum'], weight_decay=hyp['weight_decay'])
@@ -118,7 +119,8 @@ def train(hyp,  opt):
 
     # --- connect
     compute_loss = ComputeLoss(model)  # init loss class
-    model_train = TrainingWrapper(ModelWithLoss(model, compute_loss), optimizer, accumulate)
+    model_with_loss = ModelWithLoss(model,compute_loss)
+    model_train = TrainingWrapper(model_with_loss, optimizer, accumulate)
     model_train.set_train()
 
     # --- Start training
@@ -128,11 +130,11 @@ def train(hyp,  opt):
     results = (0, 0, 0, 0, 0, 0, 0)  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
     start_epoch = 0
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
-        print(('\n' + '%10s' * 8) % ('Epoch', 'box', 'obj', 'cls', 'total', 'labels', 'img_size'))
+        print(('\n' + '%10s' * 7) % ('Epoch', 'box', 'obj', 'cls', 'total', 'labels', 'img_size'))
         mloss = Tensor([0, 0, 0, 0], dtype=ms.float32)  # mean losses
         pbar = tqdm(enumerate(dataloader), total=nb)
         for i, data in pbar:  # batch -------------------------------------------------
-            imgs = Tensor.from_numpy(data["images"].astype(np.float) / 255.0)  # uint8 to float32, 0-255 to 0.0-1.0
+            imgs = Tensor.from_numpy(data["images"].astype(float) / 255.0)  # uint8 to float32, 0-255 to 0.0-1.0
             labels = Tensor.from_numpy(data["labels"])
 
             # forward
@@ -169,7 +171,6 @@ def parse_opt(known=False):
     opt.weights = PROJ_DIR / opt.weights
     assert opt.weights.exists(), 'ERROR: --resume weights checkpoint does not exist'
     print('Resuming training from %s' % str(opt.weights))
-    opt.weights = str(opt.weights)
     # print
     print(colorstr('train: ') + ', '.join(f'{k}={v}' for k, v in vars(opt).items()))
     return opt
