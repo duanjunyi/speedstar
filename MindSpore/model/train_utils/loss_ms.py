@@ -2,7 +2,8 @@
 import mindspore
 from general import colorstr
 import numpy as np
-from mindspore import nn, Tensor, Model, dtype, context, Parameter
+from mindspore import nn, Tensor, Model, context, Parameter
+from mindspore import dtype as ms
 from mindspore.context import ParallelMode
 from mindspore.parallel._auto_parallel_context import auto_parallel_context
 from mindspore.communication.management import get_group_size
@@ -12,20 +13,11 @@ from mindspore.ops import functional as F
 import mindspore as ms
 import mindspore.ops as ops
 import math
-ms.common.set_seed(0)
 
-def clamp(input: Tensor, min=None, max=None):
-    if min:
-        input[input < min] = min
-    if max:
-        input[input > max] = max
-    return input
-
-def smooth_BCE(eps=0.1):  # https://github.com/ultralytics/yolov3/issues/238#issuecomment-598028441
-    # return positive, negative label smoothing BCE targets
-    return 1.0 - 0.5 * eps, 0.5 * eps
-
-
+def clamp( x, minv, maxv):
+    x = P.Select()(x>minv, x, P.Cast()(P.OnesLike()(x)*minv, x.dtype))
+    x = P.Select()(x<maxv, x, P.Cast()(P.OnesLike()(x)*maxv, x.dtype))
+    return x
 
 class BCEBlurWithLogitsLoss(nn.Cell):
     # BCEwithLogitLoss() with reduced missing label effects.
@@ -54,7 +46,7 @@ class FocalLoss(nn.Cell):
         self.alpha = alpha
         self.reduction = loss_fcn.bce_with_logits_loss.reduction
         self.loss_fcn.bce_with_logits_loss.reduction = 'none'  # required to apply FL to each element
-        self.sigmoid = ops.Sigmoid()
+        self.sigmoid = P.Sigmoid()
 
     def construct(self, pred, true):
         loss = self.loss_fcn(pred, true)
@@ -112,18 +104,20 @@ class ComputeLoss(nn.Cell):
         h = model.hyp  # hyperparameters
 
         # Define criteria
-        BCEcls = nn.BCEWithLogitsLoss(pos_weight=Tensor([h['cls_pw']], dtype.float32))
-        BCEobj = nn.BCEWithLogitsLoss(pos_weight=Tensor([h['obj_pw']], dtype.float32))
+        BCEcls = nn.BCEWithLogitsLoss(pos_weight=Tensor([h['cls_pw']], ms.float32))
+        BCEobj = nn.BCEWithLogitsLoss(pos_weight=Tensor([h['obj_pw']], ms.float32))
 
         # Class label smoothing https://arxiv.org/pdf/1902.04103.pdf eqn 3
-        self.cp, self.cn = smooth_BCE(eps=h.get('label_smoothing', 0.0))  # positive, negative BCE targets
+        eps = h.get('label_smoothing', 0.0)
+        self.cp = Tensor(1.0 - 0.5 * eps, ms.float32)
+        self.cn = Tensor(0.5*eps, ms.float32)  # positive, negative BCE targets
 
         # Focal loss
         g = h['fl_gamma']  # focal loss gamma
         if g > 0:
             BCEcls, BCEobj = FocalLoss(BCEcls, g), FocalLoss(BCEobj, g)
 
-        self.balance = Parameter(Tensor([4.0, 1.0, 0.4], dtype.float32), requires_grad=False) #{3: [4.0, 1.0, 0.4]}.get(3, [4.0, 1.0, 0.25, 0.06, .02])  # P3-P7
+        self.balance = Parameter(Tensor([4.0, 1.0, 0.4], ms.float32), requires_grad=False)
         self.ssi = 1 if autobalance else 0  # stride 16 index
         self.BCEcls, self.BCEobj, self.gr, self.hyp, self.autobalance = BCEcls, BCEobj, model.gr, h, autobalance
         self.na = 3 # num of anchors
@@ -139,128 +133,114 @@ class ComputeLoss(nn.Cell):
 
                                 [[ 3.62500,  2.81250],
                                 [ 4.87500,  6.18750],
-                                [11.65625, 10.18750]]], dtype=dtype.float32)
-        self.sig = ops.Sigmoid()
-        self.cat1 = ops.Concat(1)
-        self.cat0 = ops.Concat(0)
-        self.cat2 = ops.Concat(2)
-        self.argsort = lambda x: Tensor(x.asnumpy().argsort())
-        self.ones = ops.Ones()
-        self.repeat = ops.Tile()
-        self.max = ops.Maximum()
-        self.stack = ops.Stack()
-        self.logical_and = ops.LogicalAnd()
-        self.min, self.pow, self.atan = ops.Minimum(), ops.Pow(), ops.Atan()
-        self.reduce_max = ops.ReduceMax()
-        self.range = ops.Range()
+                                [11.65625, 10.18750]]], dtype=ms.float32)
+        self.off = Tensor([[0, 0],
+                            [1, 0], [0, 1], [-1, 0], [0, -1],  # j,k,l,m
+                            # [1, 1], [1, -1], [-1, 1], [-1, -1],  # jk,jm,lk,lm
+                            ], dtype=ms.float32) * 0.5  # offsets
+        self.loss_item = Parameter(Tensor([0,0,0,0], ms.float32), requires_grad=False)
+        self.sig = P.Sigmoid()
 
     def construct(self, p, targets):  # predictions, targets, model
-        lcls, lbox, lobj = Tensor(0, dtype.float32), Tensor(0, dtype.float32), Tensor(0, dtype.float32)
+        lcls, lbox, lobj = Tensor(0, ms.float32), Tensor(0, ms.float32), Tensor(0, ms.float32)
         tcls, tbox, indices, anchors = self.build_targets(p, targets)  # targets
-
         # Losses
         for i, pi in enumerate(p):  # layer index, layer predictions
             b, a, gj, gi = indices[i]  # image, anchor, gridy, gridx
-            tobj = ops.zeros_like(pi[..., 0])  # target obj
+            tobj = P.ZerosLike()((pi[..., 0]))  # target obj
 
-            n = b.shape[0]  # number of targets
+            n = P.Shape()(b)[0]  # number of targets
             if n:
                 ps = pi[b, a, gj, gi]  # prediction subset corresponding to targets
 
                 # Regression
                 pxy = self.sig(ps[:, :2]) * 2. - 0.5
                 pwh = (self.sig(ps[:, 2:4]) * 2) ** 2 * anchors[i]
-                pbox = self.cat1((pxy, pwh))  # predicted box
+                pbox = P.Concat(1)((pxy, pwh))  # predicted box
                 iou = self.bbox_iou(pbox.T, tbox[i], x1y1x2y2=False, CIoU=True)  # iou(prediction, target)
-                lbox += (1.0 - iou).mean()  # iou loss
+                lbox += P.ReduceMean()(1.0 - iou)  # iou loss
 
                 # Objectness
-                score_iou = clamp(iou, 0).astype(tobj.dtype)
-                if self.sort_obj_iou:
-                    sort_id = self.argsort(score_iou)
-                    b, a, gj, gi, score_iou = b[sort_id], a[sort_id], gj[sort_id], gi[sort_id], score_iou[sort_id]
+                score_iou = clamp(iou, 0, 100)
                 tobj[b, a, gj, gi] = (1.0 - self.gr) + self.gr * score_iou  # iou ratio
 
                 # Classification
                 if self.nc > 1:  # cls loss (only if multiple classes)
-                    t = ps[:, 5:].fill(self.cn).astype(dtype.float32)
-                    # t = Tensor.from_numpy(np.full_like(ps[:, 5:], self.cn, np.float)).astype(dtype.float32)
-                    t[list(range(n)), tcls[i]] = Tensor(self.cp, dtype.float32)
+                    t = P.OnesLike()(ps[:, 5:]) * self.cn
+                    t[nn.Range(0,n,1)(), tcls[i]] = Tensor(self.cp, ms.float32)
                     lcls += self.BCEcls(ps[:, 5:], t)  # BCE
-
-                # Append targets to text file
-                # with open('targets.txt', 'a') as file:
-                #     [file.write('%11.5g ' * 4 % tuple(x) + '\n') for x in torch.cat((txy[i], twh[i]), 1)]
 
             obji = self.BCEobj(pi[..., 4], tobj)
             lobj += obji * self.balance[i]  # obj loss
             if self.autobalance:
-                self.balance[i] = self.balance[i] * 0.9999 + 0.0001 / obji.item()
+                self.balance[i] = self.balance[i] * 0.9999 + 0.0001 / obji
 
         if self.autobalance:
-            for i in len(self.balance):
+            for i in nn.Range(0,3,1)():
                 self.balance[i] = self.balance[i] / self.balance[self.ssi]
             # self.balance = [x / self.balance[self.ssi] for x in self.balance]
         lbox *= self.hyp['box']
         lobj *= self.hyp['obj']
         lcls *= self.hyp['cls']
-        bs = p[0].shape[0]  # batch size
+        bs = P.Shape()(p[0])[0]  # batch size
 
         loss = lbox + lobj + lcls
-        return loss * bs, self.cat0((lbox, lobj, lcls, loss))
+        self.loss_item = P.Concat(0)((lbox, lobj, lcls, loss))
+        return loss * bs
 
     def build_targets(self, p, targets):
         # Build targets for compute_loss(), input targets(image,class,x,y,w,h)
-        na, nt = self.na, targets.shape[0]  # number of anchors, targets
+        na, nt = self.na, P.Shape()(targets)[0]  # number of anchors, targets
         tcls, tbox, indices, anch = [], [], [], []
-        gain = self.ones(7, dtype.float32)  # normalized to gridspace gain
-        ####
-        ai = self.repeat(self.range(0.0, na.astype(dtype.float32), 1.0).view(na, 1), (1, nt))  # same as .repeat_interleave(nt)
-        targets = self.cat2((self.repeat(targets, (na, 1, 1)),  ai[:, :, None]))  # append anchor indices
+        gain = P.Ones()((7,), ms.float32)   # normalized to gridspace gain
 
-        g = 0.5  # bias
-        off = Tensor([[0, 0],
-                            [1, 0], [0, 1], [-1, 0], [0, -1],  # j,k,l,m
-                            # [1, 1], [1, -1], [-1, 1], [-1, -1],  # jk,jm,lk,lm
-                            ], dtype=dtype.float32) * g  # offsets
+        ai = P.Reshape()(nn.Range(0, na, 1)(), (na, 1))
+        ai = P.Cast()(P.Tile()(ai, (1, nt)), ms.float32)      #  na x nt , each col: 0 1 2
+        targets = P.Concat(2)( (P.Tile()(targets, (na, 1, 1)),  P.ExpandDims()(ai, 2)) )  # na,nt,7(i c xyxy ai)
 
         for i in range(self.nl):
-            anchors = self.anchors[i]
-            gain[2:6] = Tensor(p[i].shape, dtype.float32)[[3, 2, 3, 2]]  # xyxy gain
+            anchors = self.anchors[i] # 3x2
+            gain[2:6] = Tensor(P.Shape()(p[i]), ms.float32)[[3, 2, 3, 2]]  # xyxy gain (1  1 1024 1024 1024 1024 1)
 
             # Match targets to anchors
             t = targets * gain
             if nt:
                 # Matches
-                r = t[:, :, 4:6] / anchors[:, None]  # wh ratio
-                j = self.reduce_max(self.max(r, 1. / r), 2) < self.hyp['anchor_t']
-                # j = Tensor.from_numpy(self.max(r, 1./r).asnumpy().max(2)) < self.hyp['anchor_t']  # compare
-                # j = wh_iou(anchors, t[:, 4:6]) > model.hyp['iou_t']  # iou(3,n)=wh_iou(anchors(3,2), gwh(n,2))
-                t = Tensor(t.asnumpy()[j.asnumpy()], t.dtype)  # filter
+                r = t[:, :, 4:6] / P.ExpandDims()(anchors, 1)  # wh ratio [na, nt, 2]
+                j = P.ReduceMax()(P.Maximum()(r, 1. / r), 2) < self.hyp['anchor_t']
+                t = P.MaskedSelect()(P.Transpose()(t, (2, 0, 1)), j)
+                t = P.Transpose()(P.Reshape()(t, (7, -1)), (1, 0)) # [M, 7]
 
                 # Offsets
                 gxy = t[:, 2:4]  # grid xy
-                gxi = gain[[2, 3]] - gxy  # inverse
-                j, k = self.logical_and((gxy % 1. < g), (gxy > 1.)).T
-                l, m = self.logical_and((gxi % 1. < g), (gxi > 1.)).T
-                j = self.stack((j.fill(True), j, k, l, m)).asnumpy()
-                t = Tensor(self.repeat(t, (5, 1, 1)).asnumpy()[j], dtype=t.dtype)
-                offsets = Tensor((ops.zeros_like(gxy)[None] + off[:, None]).asnumpy()[j], off.dtype)
+                gxi = gain[[2, 3]] - gxy  # inverse 得到中心点相对于右下角的坐标 gxi(M,2)
+                j, k = (P.LogicalAnd()(P.Mod()(gxy, 1.0) < 0.5, gxy > 1.0)).T
+                l, m = (P.LogicalAnd()(P.Mod()(gxi, 1.0) < 0.5, gxi > 1.0)).T
+                jt = P.Fill()(ms.bool_, P.Shape()(j), True)
+                j = P.Stack()((jt, j, k, l, m)) # [5, m]
+
+                t =P.Tile()(t, (5, 1, 1)) # [5,m,7]
+                t = P.MaskedSelect()(P.Transpose()(t, (2, 0, 1)), j)
+                t = P.Transpose()(P.Reshape()(t, (7, -1)), (1, 0)) # [n, 7]
+
+                offsets = P.ExpandDims()(P.ZerosLike()(gxy), 0) + P.ExpandDims()(self.off, 1)
+                offsets = P.MaskedSelect()(P.Transpose()(offsets, (2, 0, 1)), j)
+                offsets = P.Transpose()(P.Reshape()(offsets, (2, -1)), (1, 0)) # [n, 2]
             else:
                 t = targets[0]
                 offsets = 0
 
             # Define
-            b, c = t[:, :2].astype(dtype.int64).T  # image, class
+            b, c = P.Cast()(t[:, :2], ms.int64).T  # image, class
             gxy = t[:, 2:4]  # grid xy
             gwh = t[:, 4:6]  # grid wh
-            gij = (gxy - offsets).astype(dtype.int64)
+            gij = P.Cast()((gxy - offsets), ms.int64)
             gi, gj = gij.T  # grid xy indices
 
             # Append
-            a = t[:, 6].astype(dtype.int64)  # anchor indices
-            indices.append((b, a, clamp(gj, 0, gain[3].asnumpy().item() - 1), clamp(gi, 0, gain[2].asnumpy().item() - 1)))   # image, anchor, grid indices
-            tbox.append(self.cat1((gxy - gij, gwh)))  # box
+            a = P.Cast()(t[:, 6], ms.int64) # anchor indices
+            indices.append((b, a, clamp(gj, 0, gain[3] - 1), clamp(gi, 0, gain[2] - 1)) )  # image, anchor, grid indices
+            tbox.append(P.Concat(1)((gxy - gij, gwh)))  # box
             anch.append(anchors[a])  # anchors
             tcls.append(c)  # class
 
@@ -281,8 +261,8 @@ class ComputeLoss(nn.Cell):
 
         # Intersection area
 
-        inter = clamp(self.min(b1_x2, b2_x2) - self.max(b1_x1, b2_x1), 0) * \
-                clamp(self.min(b1_y2, b2_y2) - self.max(b1_y1, b2_y1), 0)
+        inter = clamp(self.min(b1_x2, b2_x2) - self.max(b1_x1, b2_x1), 0, 1000000) * \
+                clamp(self.min(b1_y2, b2_y2) - self.max(b1_y1, b2_y1), 0, 1000000)
 
         # Union Area
         w1, h1 = b1_x2 - b1_x1, b1_y2 - b1_y1 + eps
@@ -310,6 +290,7 @@ class ComputeLoss(nn.Cell):
 
         return iou  # IoU
 
+
 class ModelWithLoss(nn.Cell):
     """
     connect model with loss
@@ -318,12 +299,12 @@ class ModelWithLoss(nn.Cell):
         super(ModelWithLoss, self).__init__()
         self.model = model
         self.loss_fn = loss_fn
-    def construct(self, imgs, label):
+    def construct(self, imgs, labels):
         pred = self.model(imgs)
-        loss, loss_item = self.loss_fn(pred[0:3])
-        return loss, loss_item
+        loss = self.loss_fn(pred[0:3], labels)
+        return loss
 
-class TrainingWrapper():
+class TrainingWrapper(nn.Cell):
     """Training wrapper."""
 
     def __init__(self, network, optimizer, accumulate=1, sens=1.0):
@@ -334,8 +315,8 @@ class TrainingWrapper():
         self.optimizer = optimizer
         self.grad = C.GradOperation(get_by_list=True, sens_param=True)
         self.sens = sens
-        self.reducer_flag = False
         self.grad_reducer = None
+        self.reducer_flag = False
         self.parallel_mode = context.get_auto_parallel_context("parallel_mode")
         if self.parallel_mode in [ParallelMode.DATA_PARALLEL, ParallelMode.HYBRID_PARALLEL]:
             self.reducer_flag = True
@@ -346,29 +327,35 @@ class TrainingWrapper():
             else:
                 degree = get_group_size()
             self.grad_reducer = nn.DistributedGradReducer(optimizer.parameters, mean, degree)
-        # accumulate grads
-        self.accumulate = accumulate
-        self.iter_cnt = 0
-        self.acc_grads = None
+        # # accumulate grads TODO
+        # self.accumulate = accumulate
+        # self.iter_cnt = Parameter()
+        # self.acc_grads = None
 
-    def __call__(self, imgs, labels):
-        self.iter_cnt += 1
+    def construct(self, imgs, labels):
         weights = self.weights
-        loss, loss_items = self.network(imgs, labels)
+        loss = self.network(imgs, labels)
         sens = P.Fill()(P.DType()(loss), P.Shape()(loss), self.sens)
         grads = self.grad(self.network, weights)(imgs, labels, sens)
-        # accumulate grads
-        if self.iter_cnt == 1: # 积累周期开始
-            self.acc_grads = list(grads)
-        else: # 积累
-            for i in range(len(grads)):
-                self.acc_grads[i] += grads[i]
-        if self.iter_cnt % self.accumulate == 0:  # 更新
-            self.iter_cnt = 0
-            if self.reducer_flag:
-                self.acc_grads = self.grad_reducer(self.acc_grads)
-            self.optimizer(self.acc_grads)
-        return loss, loss_items
+        self.optimizer(grads)
+        return loss, self.network.loss_fn.loss_item
+        # self.iter_cnt += 1
+        # weights = self.weights
+        # loss, loss_items = self.network(imgs, labels)
+        # sens = P.Fill()(P.DType()(loss), P.Shape()(loss), self.sens)
+        # grads = self.grad(self.network, weights)(imgs, labels, sens)
+        # # accumulate grads
+        # if self.iter_cnt == 1: # 积累周期开始
+        #     self.acc_grads = list(grads)
+        # else: # 积累
+        #     for i in range(len(grads)):
+        #         self.acc_grads[i] += grads[i]
+        # if self.iter_cnt % self.accumulate == 0:  # 更新
+        #     self.iter_cnt = 0
+        #     if self.reducer_flag:
+        #         self.acc_grads = self.grad_reducer(self.acc_grads)
+        #     self.optimizer(self.acc_grads)
+        # return loss, loss_items
 
 # test
 if __name__ == '__main__':
@@ -378,7 +365,7 @@ if __name__ == '__main__':
     sys.path.append(str(BASE_DIR.joinpath('..').resolve()))
     from models.yolov5s import Model
     from mindspore import context
-    context.set_context(mode=context.GRAPH_MODE, device_target='CPU')
+    context.set_context(mode=context.PYNATIVE_MODE, device_target='CPU')
     import yaml
     from train_utils.general import labels_to_class_weights
     # model
@@ -394,17 +381,16 @@ if __name__ == '__main__':
     model.nc = nc  # attach number of classes to model
     model.hyp = hyp  # attach hyperparameters to model
     model.gr = 1.0  # iou loss ratio (obj_loss = 1.0 or iou)
-    model.class_weights = Tensor([1.0007, 1.2161, 0.83789, 0.97289, 0.76471, 1.2077], dtype.float32)
+    model.class_weights = Tensor([1.0007, 1.2161, 0.83789, 0.97289, 0.76471, 1.2077], ms.float32)
     model.names = ['red_stop', 'green_go', 'yellow_back', 'speed_limited', 'speed_unlimited', 'pedestrian_crossing']
 
     compute_loss = ComputeLoss(model)
     targets = Tensor([[0.00000, 0.00000, 0.08701, 0.66769, 0.04519, 0.08280],
         [0.00000, 3.00000, 0.44500, 0.72020, 0.02538, 0.03608],
-        [1.00000, 0.00000, 0.43246, 0.70731, 0.02414, 0.05162]], dtype.float32)
+        [1.00000, 0.00000, 0.43246, 0.70731, 0.02414, 0.05162]], ms.float32)
     preds = (Tensor(np.ones([2, 3, 128, 128, 11], dtype=np.float32)),
             Tensor(np.ones([2, 3, 64, 64, 11], dtype=np.float32)),
             Tensor(np.ones([2, 3, 32, 32, 11], dtype=np.float32)))
     loss, loss_items = compute_loss(preds, targets)
-    print(loss)
+
     print(loss_items)
-    from mindspore import Model as m

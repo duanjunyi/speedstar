@@ -17,9 +17,10 @@ from mindspore.context import ParallelMode
 from mindspore import Tensor, context, nn
 from mindspore import load_checkpoint, load_param_into_net
 from mindspore import dtype as ms
-from models.yolov5s import Model, YoloWithLossCell, TrainingWrapper
+from models.yolov5s import Model
 from train_utils.yolo_dataset import create_dataloader
 from train_utils.general import labels_to_class_weights, check_img_size, colorstr, fitness
+from train_utils.loss_ms import ComputeLoss, ModelWithLoss, TrainingWrapper
 
 PROJ_DIR = Path(__file__).resolve().parent   # TODO 项目根目录，以下所有目录相对于此
 
@@ -65,7 +66,7 @@ def train(hyp,  opt):
     nc = int(data_dict['nc'])  # number of classes
     names = data_dict['names']  # class names
     assert len(names) == nc, '%g names found for nc=%g dataset in %s' % (len(names), nc, data)  # check
-    train_path = r'D:\Huawei\speedstar\data\datav4\test.txt'
+    train_path = r'D:\Huawei\speedstar\data\datav4\test.txt' # TODO 自动根据data_dict['train']填写
     val_path = data_dict['val']
 
     # 训练集
@@ -117,7 +118,8 @@ def train(hyp,  opt):
                             momentum=hyp['momentum'], nesterov=True, weight_decay=hyp['weight_decay'])
 
     # --- connect
-    model_train = TrainingWrapper(YoloWithLossCell(model), optimizer, accumulate)
+    compute_loss = ComputeLoss(model)  # init loss class
+    model_train = TrainingWrapper(ModelWithLoss(model, compute_loss), optimizer, accumulate)
     model_train.set_train()
 
     # --- Start training
@@ -127,25 +129,21 @@ def train(hyp,  opt):
     results = (0, 0, 0, 0, 0, 0, 0)  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
     start_epoch = 0
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
-        print(('\n' + '%10s' * 3) % ('Epoch', 'loss', 'img_size'))
-        mloss = 0.0  # mean losses
+        print(('\n' + '%10s' * 8) % ('Epoch', 'box', 'obj', 'cls', 'total', 'labels', 'img_size'))
+        mloss = np.zeros(4).astype(np.float32)  # mean losses
         pbar = tqdm(enumerate(dataloader), total=nb)
         for i, data in pbar:  # batch -------------------------------------------------
             imgs = Tensor.from_numpy(data["images"].astype(np.float) / 255.0).astype(ms.float32) # uint8 to float32, 0-255 to 0.0-1.0
-            batch_y_true_0 = Tensor.from_numpy(data['bbox1']).astype(ms.float32)
-            batch_y_true_1 = Tensor.from_numpy(data['bbox2']).astype(ms.float32)
-            batch_y_true_2 = Tensor.from_numpy(data['bbox3']).astype(ms.float32)
-            batch_gt_box0 = Tensor.from_numpy(data['gt_box1']).astype(ms.float32)
-            batch_gt_box1 = Tensor.from_numpy(data['gt_box2']).astype(ms.float32)
-            batch_gt_box2 = Tensor.from_numpy(data['gt_box3']).astype(ms.float32)
+            labels = Tensor.from_numpy(data["labels"]).astype(ms.float32)
+
             # forward
-            loss = model_train(imgs, batch_y_true_0, batch_y_true_1, batch_y_true_2, batch_gt_box0, batch_gt_box1,
-                       batch_gt_box2)
+            loss, loss_items = model_train(imgs, labels)
 
             # Print
-            mloss = (mloss * i + loss) / (i + 1)  # update mean losses
-            s = ('%10s' + '%10.4g' * 2) % (
-                f'{epoch}/{epochs - 1}', mloss.asnumpy(), imgs.shape[-1])
+            loss_items = loss_items.asnumpy()
+            mloss = (mloss * i + loss_items) / (i + 1)  # update mean losses
+            s = ('%10s' + '%10.4g' * 6) % (
+                f'{epoch}/{epochs - 1}', *mloss, labels.shape[0], imgs.shape[-1])
             pbar.set_description(s)
             # end batch ------------------------------------------------------------------------------------------------
 

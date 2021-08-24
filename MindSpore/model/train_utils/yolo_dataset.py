@@ -15,7 +15,6 @@ from PIL import Image, ExifTags
 from train_utils.augmentations import augment_hsv, copy_paste, letterbox, mixup, random_perspective
 from train_utils.general import xywhn2xyxy, xyxy2xywhn, xyn2xy, segments2boxes
 import mindspore.dataset as de
-from train_utils.transforms import PreprocessTrueBox
 cv2.setNumThreads(0)
 
 help_url = 'https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data'
@@ -234,27 +233,25 @@ class LoadImagesAndLabels():  # for training/testing
             # Cutouts
             # labels = cutout(img, labels, p=0.5)
 
+        labels_out = np.zeros((nl, 6))
+        if nl:
+            labels_out[:, 1:] = labels
 
         # Convert
         img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
         img = np.ascontiguousarray(img)
 
-        # labels_out = np.zeros((nl, 6))
-        # if nl:
-        #     labels_out[:, 1:] = labels
-        labels_out = np.concatenate([(labels[:, 1:]*1024).astype(int), labels[:, :1]], axis=1)
-        labels_out[:, 2:4] += labels_out[:, 0:2]
-        return img, labels_out
+        return img, labels_out #TODO, self.img_files[index], shapes
 
 # --- map
 def normal_labelsize_map(label):
-    # 将label的size化为统一的 [16, 5] 默认一张图最多只有16个label
+    # 将label的size化为统一的 [16, 6] 默认一张图最多只有16个label
     # 返回统一大小的label以及实际label的数量
     n = len(label)
     if n == 16:
         return label, np.array(n)
     elif n < 16 :
-        return np.concatenate([label, np.zeros((16-n, 5))]), np.array(n)
+        return np.concatenate([label, np.zeros((16-n, 6))]), np.array(n)
 
 
 def post_map(labels, label_size):
@@ -285,16 +282,12 @@ def create_dataloader(path, imgsz, batch_size, stride=32, hyp=None, augment=Fals
     # 标准化 labelsize (16, 6)
     ds = ds.map(normal_labelsize_map, input_columns=["labels"], output_columns=["labels", "labelsize"],
                 column_order=["images", "labels", "labelsize"], num_parallel_workers=nw, python_multiprocessing=multi_process)
-
-    out_order = ["images", "labels", "bbox1", "bbox2", "bbox3", "gt_box1", "gt_box2", "gt_box3"]
-    ds = ds.map(operations=PreprocessTrueBox(), input_columns=["labels"],
-                    output_columns=["labels", "bbox1", "bbox2", "bbox3", "gt_box1", "gt_box2", "gt_box3"],
-                    column_order=out_order, num_parallel_workers=min(4, nw), python_multiprocessing=multi_process)
     # batch map,  drop=True
     ds = ds.batch(batch_size, num_parallel_workers=min(4, nw), drop_remainder=True, python_multiprocessing=multi_process)
-    # # post map
-    # ds = ds.map(post_map, input_columns=["labels", "labelsize"], output_columns=["labels"],
-    #             column_order=["images", "labels"], num_parallel_workers=nw, python_multiprocessing=multi_process)
+    # post map
+    ds = ds.map(post_map, input_columns=["labels", "labelsize"], output_columns=["labels"],
+                column_order=["images", "labels"], num_parallel_workers=nw, python_multiprocessing=multi_process)
+
     # ds = ds.repeat(...)
     data_loader = ds.create_dict_iterator(output_numpy=True, num_epochs=500)  # 最多迭代500次
     return data_loader, dataset
@@ -460,8 +453,6 @@ if __name__ == '__main__':
     with open(hpy_path) as f:
             hyp = yaml.safe_load(f)
 
-
-
     data_loader, dataset = create_dataloader(path=data_path, imgsz=640, batch_size=3, stride=32, hyp=hyp, augment=True, cache=False, pad=0.0,
                       rect=False, workers=4, image_weights=False, prefix='', multi_process=False)
     class_weights = labels_to_class_weights(dataset.labels, 6) * 6
@@ -473,14 +464,10 @@ if __name__ == '__main__':
         print(data.keys())
         print(data["labels"].shape)
         print(type(data["labels"]))
+        print(type(data["labels"][0]))
         print('***********\n', data["images"].shape)
         print(type(data["images"]))
         print(type(data["images"][0]))
-        print(data["bbox1"].shape)
-        print(data["labels"][0])
-        print(data["gt_box1"][0])
-        print(data["gt_box2"][0])
-        print(data["gt_box3"][0])
+        print(data["labels"])
         exit()
-
 
