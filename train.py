@@ -370,6 +370,7 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
 
                 # Save last, best and delete
                 torch.save(ckpt, last)
+                print(f"best_fitness: {best_fitness}")
                 if best_fitness == fi:
                     torch.save(ckpt, best)
                 del ckpt
@@ -382,7 +383,7 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
 
             # Strip optimizers
             if best.exists():
-                strip_optimizer(best, best.with_name('best_strip'))  # strip optimizers
+                strip_optimizer(best, best.with_name('best_strip.pt'))  # strip optimizers
 
     torch.cuda.empty_cache()
     return results
@@ -393,18 +394,18 @@ def parse_opt(known=False):
     # save path
     parser.add_argument('--project', default='runs/train', help='save to project/name')
     parser.add_argument('--name', default='exp', help='save to project/name')
-    parser.add_argument('--exist-ok', action='store_true', default=True, help='existing project/name ok, do not increment')
+    parser.add_argument('--exist-ok', action='store_true', default=False, help='existing project/name ok, do not increment')
     # model/dataset config
     parser.add_argument('--weights', type=str, default='yolov5s.pt', help='initial weights path')
     parser.add_argument('--cfg', type=str, default='', help='model.yaml path')
     parser.add_argument('--data', type=str, default='data/dataset.yaml', help='dataset.yaml path')
-    parser.add_argument('--hyp', type=str, default='data/hyps/hyp.speedstar.yaml', help='hyperparameters path')
+    parser.add_argument('--hyp', type=str, default='data/hyps/hyp.scratch.yaml', help='hyperparameters path')
     # train config
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--batch-size', type=int, default=2, help='total batch size for all GPUs')
+    parser.add_argument('--batch-size', type=int, default=6, help='total batch size for all GPUs')
     parser.add_argument('--img-size', nargs='+', type=int, default=[1024, 1024], help='[train, val] image sizes')
     parser.add_argument('--rect', action='store_true', help='rectangular training')
-    parser.add_argument('--resume', nargs='?', const=True, default=False, help='resume most recent training')
+    parser.add_argument('--resume', nargs='?', const=True, default=True, help='resume most recent training')
     parser.add_argument('--nosave', action='store_true', help='only save final checkpoint')
     parser.add_argument('--noval', action='store_true', help='only validate final epoch')
     parser.add_argument('--noautoanchor', action='store_true', help='disable autoanchor check')
@@ -425,6 +426,8 @@ def parse_opt(known=False):
     parser.add_argument('--artifact_alias', type=str, default="latest", help='version of dataset artifact to be used')
     parser.add_argument('--local_rank', type=int, default=-1, help='DDP parameter, do not modify')
     opt = parser.parse_known_args()[0] if known else parser.parse_args()
+    if opt.resume:
+        opt.exist_ok = True
     return opt
 
 

@@ -25,7 +25,7 @@ class Evaluator():
         super(Evaluator, self).__init__()
         # 加载模型
         param_dict = load_checkpoint(str(cfg.WEIGHT_PATH))
-        self.test_size = param_dict['module1_8.conv2d_0.weight'].shape[1]
+        self.test_size = 1024
         print(f'Image size: {self.test_size}')
         self.yolo = Model(bs=1, img_size=self.test_size)  # batch size 默认为 1
         not_load_params = load_param_into_net(self.yolo, param_dict)
@@ -47,7 +47,7 @@ class Evaluator():
         start_time = current_milli_time()  ### TODO
         preds = self.yolo(data)  # list of Tensor
         self.inference_time += current_milli_time() - start_time  ###
-        pred=preds[3][0:1,...].asnumpy()  # Tensor [1, N, 11(xywh)]
+        pred=preds[6][0:1,...].asnumpy()  # Tensor [1, N, 11(xywh)]
         # nms
         pred = batch_nms(pred, self.conf_thresh, self.nms_thresh)  # numpy [1, n, 6(xyxy)]
         pred = pred[0]
@@ -150,7 +150,6 @@ if __name__ == "__main__":
     APs, mAP, infer_time = predictor.calc_APs()
     for k, v in APs.items():
         print('{:<20s}: ap50 {:.3f} | ap50_95 {:.3f}'.format(k, v[0], v[1]))
-        mAP += v
     print('mAP', ' '*15, ': ap50 {0[0]:.3f} | ap50_95 {0[1]:.3f}'.format(mAP))
     print('inference time: {}ms' .format(infer_time))
 

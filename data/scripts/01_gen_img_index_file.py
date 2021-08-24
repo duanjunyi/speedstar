@@ -6,6 +6,7 @@ from tqdm import tqdm
 from data_config import DATASET_PATH, IMG_PATH, split_percent
 
 if __name__ == "__main__":
+    assert IMG_PATH.exists(), f"Path {IMG_PATH} does not exists"
     train_index_file = DATASET_PATH / 'train.txt'
     test_index_file =  DATASET_PATH / 'test.txt'
     # 获取所有图片路径

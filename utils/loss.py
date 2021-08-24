@@ -1,5 +1,6 @@
 # Loss functions
 
+from MindSpore.model.service_utils.general import colorstr
 import torch
 import torch.nn as nn
 

@@ -144,16 +144,26 @@ os.environ['HOME'] = r'C:\Users\youname'
 - 迁移前后权重映射（后缀为`.json`）
 - 转换报告（后缀为`.txt`）
 
-### 7.3 模型测试
-`mindspore\`文件夹下保存了与`mindspore`模型相关的文件，将转换得到的`.ckpt`权重文件放置于`weigths\`文件夹下，修改`yolov5_config.py`中的配置。
+### 7.3 模型训练
+`mindspore\`文件夹下保存了迁移得到的相关文件，可以从迁移模型开始继续训练，训练配置存放与 `opt.yaml` 文件中。注意，训练要求安装`mindspore_gpu-1.3.0`版本。
+
+运行：
+```
+ python train_ms.py --option ./opt.yaml
+```
+
+### 7.4 模型测试
+与第4节相同，本部分也提供了两种评估手段：计算`mAP`与可视化。首先将`.ckpt`权重文件放置于`weigths\`文件夹下，修改`yolov5_config.py`中的配置。
 
 接着运行：
 ```
-python predict.py
+python predict.py  # 可视化
+# 或者
+python evaluate.py # mAP
 ```
 
-### 7.4 部署
-本地运行`customize_service.py`，如果可以正确输出边框，说明配置正确。接着将`MindSpore`文件夹整体上传至OBS中，并选择从该文件夹构建模型。
+### 7.5 部署
+本地运行`customize_service.py`，任意指定一张图片，如果可以正确输出边框，说明配置正确。接着将`MindSpore`文件夹整体上传至OBS中，并选择从该文件夹构建模型。
 
 
 

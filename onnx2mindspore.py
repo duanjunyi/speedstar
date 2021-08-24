@@ -1,3 +1,7 @@
+"""
+Usage:
+    $  python .\onnx2mindspore.py --weights ./runs/convert/yolov5s_datav4_1024.onnx
+"""
 import os
 import sys
 from pathlib import Path
@@ -5,7 +9,7 @@ BASE_DIR = Path(__file__).resolve().parent
 sys.path.append(str(BASE_DIR))
 import argparse
 os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION']='cpp'
-
+os.environ['HOME'] = r'C:\Users\liujin'
 
 def parse_opt():
     parser = argparse.ArgumentParser('MindConverter')

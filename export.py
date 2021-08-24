@@ -1,7 +1,7 @@
 """Export a YOLOv5 *.pt model to TorchScript, ONNX, CoreML formats
 
 Usage:
-    $ python path/to/export.py --weights yolov5s.pt --img 640 --batch 1
+    $ python export.py --weights runs/convert/yolov5s_datav4_1024.pt --img 1024 --batch 1 --dynamic --simplify
 """
 
 import argparse

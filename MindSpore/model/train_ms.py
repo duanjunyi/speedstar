@@ -9,6 +9,7 @@ import sys
 import time
 from copy import deepcopy
 from pathlib import Path
+from mindspore.train.serialization import save_checkpoint
 import numpy as np
 import yaml
 from tqdm import tqdm
@@ -16,12 +17,11 @@ from mindspore.context import ParallelMode
 from mindspore import Tensor, context, nn
 from mindspore import load_checkpoint, load_param_into_net
 from mindspore import dtype as ms
-from models.yolov5s import Model
+from models.yolov5s import Model, YoloWithLossCell, TrainingWrapper
 from train_utils.yolo_dataset import create_dataloader
 from train_utils.general import labels_to_class_weights, check_img_size, colorstr, fitness
-from train_utils.loss_ms import ComputeLoss, ModelWithLoss, TrainingWrapper
 
-PROJ_DIR = Path(__file__).resolve()   # TODO 项目根目录，以下所有目录相对于此
+PROJ_DIR = Path(__file__).resolve().parent   # TODO 项目根目录，以下所有目录相对于此
 
 
 def train(hyp,  opt):
@@ -56,6 +56,7 @@ def train(hyp,  opt):
     with open(save_dir / 'hyp.yaml', 'w') as f:
         yaml.safe_dump(hyp, f, sort_keys=False)
     with open(save_dir / 'opt.yaml', 'w') as f:
+        opt.weights = str(opt.weights)
         yaml.safe_dump(vars(opt), f, sort_keys=False)
 
     # datasest config
@@ -64,7 +65,7 @@ def train(hyp,  opt):
     nc = int(data_dict['nc'])  # number of classes
     names = data_dict['names']  # class names
     assert len(names) == nc, '%g names found for nc=%g dataset in %s' % (len(names), nc, data)  # check
-    train_path = data_dict['train']
+    train_path = r'D:\Huawei\speedstar\data\datav4\test.txt'
     val_path = data_dict['val']
 
     # 训练集
@@ -107,7 +108,7 @@ def train(hyp,  opt):
     hyp['weight_decay'] *= batch_size * accumulate / nbs  # scale weight_decay
     print(f"Scaled weight_decay = {hyp['weight_decay']}")
     # 学习率
-    lr = nn.dynamic_lr.cosine_decay_lr(0, hyp['lr0'], nb*opt.epochs, nb, 5)
+    lr = nn.dynamic_lr.cosine_decay_lr(0.0, hyp['lr0'], nb*opt.epochs, nb, 5)
     if opt.adam:
         optimizer = nn.Adam(params=model.trainable_params(), learning_rate=lr,
                             betas1=hyp['momentum'], weight_decay=hyp['weight_decay'])
@@ -116,8 +117,7 @@ def train(hyp,  opt):
                             momentum=hyp['momentum'], nesterov=True, weight_decay=hyp['weight_decay'])
 
     # --- connect
-    compute_loss = ComputeLoss(model)  # init loss class
-    model_train = TrainingWrapper(ModelWithLoss(model, compute_loss), optimizer, accumulate)
+    model_train = TrainingWrapper(YoloWithLossCell(model), optimizer, accumulate)
     model_train.set_train()
 
     # --- Start training
@@ -127,25 +127,32 @@ def train(hyp,  opt):
     results = (0, 0, 0, 0, 0, 0, 0)  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
     start_epoch = 0
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
-        print(('\n' + '%10s' * 8) % ('Epoch', 'box', 'obj', 'cls', 'total', 'labels', 'img_size'))
-        mloss = Tensor([0, 0, 0, 0], dtype=ms.float32)  # mean losses
+        print(('\n' + '%10s' * 3) % ('Epoch', 'loss', 'img_size'))
+        mloss = 0.0  # mean losses
         pbar = tqdm(enumerate(dataloader), total=nb)
         for i, data in pbar:  # batch -------------------------------------------------
-            imgs = Tensor.from_numpy(data["images"].astype(np.float) / 255.0)  # uint8 to float32, 0-255 to 0.0-1.0
-            labels = Tensor.from_numpy(data["labels"])
-
+            imgs = Tensor.from_numpy(data["images"].astype(np.float) / 255.0).astype(ms.float32) # uint8 to float32, 0-255 to 0.0-1.0
+            batch_y_true_0 = Tensor.from_numpy(data['bbox1']).astype(ms.float32)
+            batch_y_true_1 = Tensor.from_numpy(data['bbox2']).astype(ms.float32)
+            batch_y_true_2 = Tensor.from_numpy(data['bbox3']).astype(ms.float32)
+            batch_gt_box0 = Tensor.from_numpy(data['gt_box1']).astype(ms.float32)
+            batch_gt_box1 = Tensor.from_numpy(data['gt_box2']).astype(ms.float32)
+            batch_gt_box2 = Tensor.from_numpy(data['gt_box3']).astype(ms.float32)
             # forward
-            loss, loss_items = model_train(imgs, labels)
+            loss = model_train(imgs, batch_y_true_0, batch_y_true_1, batch_y_true_2, batch_gt_box0, batch_gt_box1,
+                       batch_gt_box2)
 
             # Print
-            mloss = (mloss * i + loss_items) / (i + 1)  # update mean losses
-            s = ('%10s' * 2 + '%10.4g' * 6) % (
-                f'{epoch}/{epochs - 1}', *mloss, labels.shape[0], imgs.shape[-1])
+            mloss = (mloss * i + loss) / (i + 1)  # update mean losses
+            s = ('%10s' + '%10.4g' * 2) % (
+                f'{epoch}/{epochs - 1}', mloss.asnumpy(), imgs.shape[-1])
             pbar.set_description(s)
             # end batch ------------------------------------------------------------------------------------------------
 
         # mAP TODO
-        # Save model TODO
+        # Save model
+        if epoch % 10 == 0:
+            save_checkpoint(model, 'runs/exp/weights')
 
         # end epoch ----------------------------------------------------------------------------------------------------
     # end training -----------------------------------------------------------------------------------------------------
@@ -156,24 +163,22 @@ def train(hyp,  opt):
 def parse_opt(known=False):
     parser = argparse.ArgumentParser()
     # option file
-    parser.add_argument('--option', type=str, default='', help='option.yaml path')
+    parser.add_argument('--option', type=str, default='./opt.yaml', help='option.yaml path')
     # train config
-    parser.add_argument('--device', type=str, default='GPU', help='CPU, GPU, ASCEND')
-    parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--batch_size', type=int, default=16, help='total batch size for all GPUs')
-    parser.add_argument('--img_size', nargs='+', type=int, default=[1024, 1024], help='[train, val] image sizes')
-    parser.add_argument('--resume', default=False, help='resume most recent training')
     opt = parser.parse_known_args()[0] if known else parser.parse_args()
-    opt.multi_process = (opt.device == 'GPU')
     # read option file
     opt_file = PROJ_DIR / opt.option
-    assert opt_file.exists(), "opt yaml does not exist"
+    assert opt_file.exists(), f"opt yaml({str(opt_file)}) does not exist"
     with opt_file.open('r') as f:
         opt = argparse.Namespace(**yaml.safe_load(f))  # replace
+
+    opt.multi_process = (opt.device == 'GPU')
     # check weights file
     opt.weights = PROJ_DIR / opt.weights
-    assert opt.weights.exists(), 'ERROR: --resume weights checkpoint does not exist'
+    assert opt.weights.exists(), f'ERROR: resume weights({str(opt.weights)}) checkpoint does not exist'
     print('Resuming training from %s' % str(opt.weights))
+    opt.data = str(PROJ_DIR / opt.data)
+    opt.hyp = str(PROJ_DIR / opt.hyp)
     # print
     print(colorstr('train: ') + ', '.join(f'{k}={v}' for k, v in vars(opt).items()))
     return opt
