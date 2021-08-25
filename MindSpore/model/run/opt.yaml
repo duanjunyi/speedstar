@@ -1,7 +1,7 @@
-resume: false
+resume: true
 device: GPU
-epochs: 200
-batch_size: 8
+epochs: 300
+batch_size: 32
 weights: /home/ma-user/work/MindSpore/model/weights/yolov5s_datav3_1024.ckpt
 data: ./config/dataset.yaml
 hyp: ./config/hyp.speedstar.yaml
@@ -9,7 +9,7 @@ cfg: ''
 img_size:
 - 1024
 - 1024
-workers: 8
+workers: 4
 rect: false
 nosave: false
 noval: false

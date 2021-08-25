@@ -3,17 +3,19 @@ import os.path as osp
 from pathlib import Path
 
 # 服务配置
-WEIGHT = 'yolov5s_datav3_1024.ckpt'               # 模型权重
+WEIGHT = 'last.ckpt'               # 模型权重
 MODEL_PATH = Path(__file__).resolve().parent      # mindspore路径
-WEIGHT_PATH = MODEL_PATH / 'weights' / WEIGHT
+WEIGHT_PATH = MODEL_PATH / 'run/weights' / WEIGHT
 
 # try:
 #     IMG_SIZE = int(WEIGHT.split('.')[0].split('_')[-1])       # 图片尺寸
 # except:
 #     IMG_SIZE = 640
 
+IMG_SIZE = 1024
+
 # 本地测试配置
-DATASET_PATH = MODEL_PATH / '../../Datasetv3'  # 测试用的数据集
+DATASET_PATH = MODEL_PATH / 'Data' # 测试用的数据集
 
 # 推理配置
 NMS_THRESH =0.1

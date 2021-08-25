@@ -1,7 +1,7 @@
-resume: False
+resume: True
 device: GPU #CPU GPU Ascend
-epochs: 200
-batch_size: 8
+epochs: 300
+batch_size: 32
 weights: ./weights/yolov5s_datav3_1024.ckpt
 data: ./config/dataset.yaml   # dataset config
 hyp: ./config/hyp.speedstar.yaml  # hyperparameters
@@ -9,7 +9,7 @@ cfg: ''
 img_size:               # [train, val] image sizes
  - 1024
  - 1024
-workers: 8              # maximum number of dataloader workers
+workers: 4              # maximum number of dataloader workers
 rect: false             # rectangular training
 nosave: false           # only save final checkpoint
 noval: false            # only validate final epoch

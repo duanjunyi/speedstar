@@ -3,7 +3,6 @@
 Usage:
     $ python path/to/train.py --data coco128.yaml --weights yolov5s.pt --img 640
 """
-import os
 import argparse
 import sys
 import time
@@ -16,10 +15,10 @@ from mindspore.context import ParallelMode
 from mindspore import Tensor, context, nn
 from mindspore import load_checkpoint, load_param_into_net
 from mindspore import dtype as ms
-from models.yolov5s import Model
+from mindspore import save_checkpoint
+from models.yolov5s import Model, YoloWithLossCell, TrainingWrapper
 from train_utils.yolo_dataset import create_dataloader
 from train_utils.general import labels_to_class_weights, check_img_size, colorstr, fitness, check_dataset
-from train_utils.loss_ms import ComputeLoss, ModelWithLoss, TrainingWrapper
 
 PROJ_DIR = Path().cwd()
 
@@ -47,10 +46,10 @@ def train(hyp,  opt):
     print(colorstr('hyperparameters: ') + ', '.join(f'{k}={v}' for k, v in hyp.items()))
 
     # Save run settings
-    opt.weights= str(opt.weights)
     with open(save_dir / 'hyp.yaml', 'w') as f:
         yaml.safe_dump(hyp, f, sort_keys=False)
     with open(save_dir / 'opt.yaml', 'w') as f:
+        opt.weights= str(opt.weights)
         yaml.safe_dump(vars(opt), f, sort_keys=False)
     
     # Image sizes
@@ -118,9 +117,7 @@ def train(hyp,  opt):
                             momentum=hyp['momentum'], nesterov=True, weight_decay=hyp['weight_decay'])
 
     # --- connect
-    compute_loss = ComputeLoss(model)  # init loss class
-    model_with_loss = ModelWithLoss(model,compute_loss)
-    model_train = TrainingWrapper(model_with_loss, optimizer, accumulate)
+    model_train = TrainingWrapper(YoloWithLossCell(model), optimizer, accumulate)
     model_train.set_train()
 
     # --- Start training
@@ -130,26 +127,32 @@ def train(hyp,  opt):
     results = (0, 0, 0, 0, 0, 0, 0)  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
     start_epoch = 0
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
-        print(('\n' + '%10s' * 7) % ('Epoch', 'box', 'obj', 'cls', 'total', 'labels', 'img_size'))
-        mloss = Tensor([0, 0, 0, 0], dtype=ms.float32)  # mean losses
+        print(('\n' + '%10s' * 3) % ('Epoch', 'loss', 'img_size'))
+        mloss = 0.0  # mean losses
         pbar = tqdm(enumerate(dataloader), total=nb)
         for i, data in pbar:  # batch -------------------------------------------------
-            imgs = Tensor.from_numpy(data["images"].astype(float) / 255.0)  # uint8 to float32, 0-255 to 0.0-1.0
-            labels = Tensor.from_numpy(data["labels"])
+            imgs = Tensor.from_numpy(data["images"].astype(float) / 255.0).astype(ms.float32)  # uint8 to float32, 0-255 to 0.0-1.0
+            batch_y_true_0 = Tensor.from_numpy(data['bbox1']).astype(ms.float32)
+            batch_y_true_1 = Tensor.from_numpy(data['bbox2']).astype(ms.float32)
+            batch_y_true_2 = Tensor.from_numpy(data['bbox3']).astype(ms.float32)
+            batch_gt_box0 = Tensor.from_numpy(data['gt_box1']).astype(ms.float32)
+            batch_gt_box1 = Tensor.from_numpy(data['gt_box2']).astype(ms.float32)
+            batch_gt_box2 = Tensor.from_numpy(data['gt_box3']).astype(ms.float32)
 
             # forward
-            loss, loss_items = model_train(imgs, labels)
+            loss = model_train(imgs, batch_y_true_0, batch_y_true_1, batch_y_true_2, batch_gt_box0, batch_gt_box1, batch_gt_box2)
 
             # Print
-            mloss = (mloss * i + loss_items) / (i + 1)  # update mean losses
-            s = ('%10s' * 2 + '%10.4g' * 6) % (
-                f'{epoch}/{epochs - 1}', *mloss, labels.shape[0], imgs.shape[-1])
+            mloss = (mloss * i + loss) / (i + 1)  # update mean losses
+            s = ('%10s' + '%10.4g' * 2) % (
+                f'{epoch}/{epochs - 1}', mloss.asnumpy(), imgs.shape[-1])
             pbar.set_description(s)
             # end batch ------------------------------------------------------------------------------------------------
 
         # mAP TODO
         # Save model TODO
-
+        if(epoch % 10 == 0):
+            save_checkpoint(model,"./run/weights/last.ckpt")
         # end epoch ----------------------------------------------------------------------------------------------------
     # end training -----------------------------------------------------------------------------------------------------
     print(f'{epoch - start_epoch + 1} epochs completed in {(time.time() - t0) / 3600:.3f} hours.\n')
@@ -166,10 +169,10 @@ def parse_opt(known=False):
     assert opt_file.exists(), "opt yaml does not exist"
     with opt_file.open('r') as f:
         opt = argparse.Namespace(**yaml.safe_load(f))  # replace
-    # check weights file
     opt.multi_process = (opt.device == 'GPU')
+    # check weights file
     opt.weights = PROJ_DIR / opt.weights
-    assert opt.weights.exists(), 'ERROR: --resume weights checkpoint does not exist'
+    assert opt.weights.exists(), f'ERROR: resume weights({str(opt.weights)}) checkpoint does not exist'
     print('Resuming training from %s' % str(opt.weights))
     # print
     print(colorstr('train: ') + ', '.join(f'{k}={v}' for k, v in vars(opt).items()))

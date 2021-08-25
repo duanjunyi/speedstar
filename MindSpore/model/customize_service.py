@@ -28,7 +28,7 @@ class Yolov5Service(SingleNodeService):
         super(Yolov5Service, self).__init__(model_name, model_path)
         # 加载模型
         param_dict = load_checkpoint(str(cfg.WEIGHT_PATH))
-        self.test_size = param_dict['module1_8.conv2d_0.weight'].shape[1]
+        self.test_size = cfg.IMG_SIZE
         print(f'********Image size: {self.test_size}')
         self.yolo = Model(bs=1, img_size=self.test_size)  # batch size 默认为 1
         not_load_params = load_param_into_net(self.yolo, param_dict)
@@ -69,7 +69,7 @@ class Yolov5Service(SingleNodeService):
         input_batch = data['images']
         # infer
         preds = self.yolo(input_batch)  # list of Tensor
-        pred = preds[3][0:1,...].asnumpy()  # Tensor [1, N, 11(xywh)]
+        pred = preds[6][0:1,...].asnumpy()  # Tensor [1, N, 11(xywh)]
         # print(pred[0, :10])
         # nms
         pred = batch_nms(pred, self.conf_thresh, self.nms_thresh)  # numpy [1, n, 6(xyxy)]
@@ -138,7 +138,7 @@ if __name__ == "__main__":
     import numpy as np
     from io import BytesIO
     from yolov5_config import DATASET_PATH
-    img_url = DATASET_PATH  / 'JPEGImages/2.jpg'
+    img_url = DATASET_PATH  / 'JPEGImages/996.jpg'
 
     with open(img_url, 'rb') as f:
         a = BytesIO(f.read())
@@ -152,4 +152,6 @@ if __name__ == "__main__":
     data = server._preprocess(data)
     result = server._inference(data)
     result = server._postprocess(result)
+    print(result["detection_classes"])
     print(result['detection_boxes'])
+    print(result["detection_scores"])
